@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MoodSpace — Counselor Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    /* ── Dashboard-specific layout (uses new CSS variables from style.css) ── */
+    body { background: var(--color-bg-main); }
+
+    .dashboard-header {
+      background: var(--color-bg-card); border-bottom: 1px solid #E8EAE6;
+      padding: 0 1.5rem; display: flex; align-items: center;
+      justify-content: space-between; height: 60px;
+      box-shadow: var(--shadow-sm); position: sticky; top: 0; z-index: 100;
+    }
+    .dashboard-logo { font-size: 1.2rem; font-weight: 700; font-family: var(--font-heading); color: var(--color-accent-primary); }
+    .dashboard-user { display: flex; align-items: center; gap: 1rem; font-size: .88rem; color: var(--color-text-muted); }
+    .badge-counselor {
+      background: rgba(139,168,136,.15); color: var(--color-accent-primary-hover);
+      font-size: .72rem; font-weight: 700; padding: .2rem .6rem; border-radius: 999px;
+    }
+    .btn-logout {
+      padding: .35rem .9rem; border: 1.5px solid #E8EAE6; border-radius: 999px;
+      background: transparent; color: var(--color-text-muted); font-size: .8rem;
+      font-weight: 600; cursor: pointer; font-family: var(--font-body); transition: .15s ease;
+    }
+    .btn-logout:hover { border-color: var(--color-mood-rough); color: var(--color-mood-rough); }
+
+    .dashboard-body { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }
+    .dashboard-title { font-size: 1.4rem; font-weight: 600; font-family: var(--font-heading); margin-bottom: .25rem; }
+    .dashboard-sub  { color: var(--color-text-muted); font-size: .88rem; margin-bottom: 1.5rem; }
+
+    .anon-notice {
+      background: rgba(139,168,136,.12); color: var(--color-accent-primary-hover);
+      font-size: .8rem; font-weight: 600; padding: .5rem 1rem; border-radius: var(--radius-sm);
+      margin-bottom: 1.5rem; display: flex; align-items: center; gap: .4rem;
+    }
+
+    .dashboard-alert {
+      background: #FFF9E6; border: 1.5px solid #F5D97A; border-radius: var(--radius-md);
+      padding: 1.1rem 1.25rem; margin-bottom: 1.5rem;
+      display: flex; align-items: flex-start; gap: .75rem;
+    }
+    .alert-icon { font-size: 1.4rem; flex-shrink: 0; }
+    .alert-text h4 { font-weight: 700; color: #856404; margin-bottom: .2rem; font-family: var(--font-heading); }
+    .alert-text p  { font-size: .88rem; color: #856404; }
+
+    .stats-row {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 1rem; margin-bottom: 1.5rem;
+    }
+    @media (max-width: 800px) { .stats-row { grid-template-columns: repeat(2,1fr); } }
+    @media (max-width: 480px) { .stats-row { grid-template-columns: 1fr; } }
+
+    .dashboard-stat-card {
+      background: var(--color-bg-card); border-radius: var(--radius-md);
+      padding: 1.25rem; box-shadow: var(--shadow-sm); text-align: center;
+    }
+    .dashboard-stat-card .stat-num {
+      font-size: 2rem; font-weight: 700; color: var(--color-accent-primary);
+      font-family: var(--font-heading);
+    }
+    .dashboard-stat-card .stat-label { font-size: .8rem; color: var(--color-text-muted); margin-top: .25rem; }
+
+    .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.5rem; }
+    @media (max-width: 700px) { .charts-row { grid-template-columns: 1fr; } }
+
+    .dashboard-chart-card, .full-chart-card {
+      background: var(--color-bg-card); border-radius: var(--radius-md);
+      padding: 1.25rem; box-shadow: var(--shadow-sm);
+    }
+    .full-chart-card { margin-bottom: 1.5rem; }
+    .dashboard-chart-card h3, .full-chart-card h3 {
+      font-size: .92rem; font-weight: 600; margin-bottom: 1rem;
+      font-family: var(--font-heading); color: var(--color-text-main);
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── DASHBOARD HEADER ── -->
+<header class="dashboard-header">
+  <div class="dashboard-logo">🌈 MoodSpace</div>
+  <div class="dashboard-user">
+    <span id="counselor-name">Counselor</span>
+    <span class="badge-counselor">Counselor</span>
+    <button class="btn-logout" onclick="logout()">Log out</button>
+  </div>
+</header>
+
+<!-- ── DASHBOARD BODY ── -->
+<div class="dashboard-body">
+
+  <h1 class="dashboard-title">School Wellness Dashboard</h1>
+  <p class="dashboard-sub">Aggregate, anonymized data only — no individual names or personal notes are shown.</p>
+
+  <!-- Anonymization notice -->
+  <div class="anon-notice">
+    🔒 All data on this page is anonymized. You cannot see individual student names, notes, or AI responses.
+  </div>
+
+  <!-- ── MOOD ALERT (hidden until triggered) ── -->
+  <div class="dashboard-alert hidden" id="alert-section">
+    <div class="alert-icon">⚠️</div>
+    <div class="alert-text">
+      <h4>Mood trend alert</h4>
+      <p>Average mood has been below 2.5 for 3 or more consecutive days. Consider organizing a school-wide wellness check-in or activity.</p>
+    </div>
+  </div>
+
+  <!-- ── STATS CARDS ROW ── -->
+  <div class="stats-row">
+    <div class="dashboard-stat-card">
+      <div class="stat-num" id="stat-total-students">—</div>
+      <div class="stat-label">Students at your school</div>
+    </div>
+    <div class="dashboard-stat-card">
+      <div class="stat-num" id="stat-checkins-today">—</div>
+      <div class="stat-label">Check-ins today</div>
+    </div>
+    <div class="dashboard-stat-card">
+      <div class="stat-num" id="stat-avg-mood">—</div>
+      <div class="stat-label">Avg mood score this week</div>
+    </div>
+    <div class="dashboard-stat-card">
+      <div class="stat-num" id="stat-checkin-percent">—</div>
+      <div class="stat-label">Students checked in this week</div>
+    </div>
+  </div>
+
+  <!-- ── CHARTS ROW (Doughnut + Line) ── -->
+  <div class="charts-row">
+    <div class="dashboard-chart-card">
+      <h3>Mood distribution this week</h3>
+      <canvas id="mood-dist-chart"></canvas>
+    </div>
+    <div class="dashboard-chart-card">
+      <h3>4-week mood trend</h3>
+      <canvas id="weekly-trend-chart"></canvas>
+    </div>
+  </div>
+
+  <!-- ── TOPIC BREAKDOWN ── -->
+  <div class="full-chart-card">
+    <h3>What students are journaling about this week</h3>
+    <canvas id="topic-chart" height="120"></canvas>
+  </div>
+
+</div><!-- end dashboard-body -->
+
+<!-- Local dev: config.js sets the global (gitignored). onerror skips it silently on Vercel -->
+<script src="./config.js" onerror="void 0"></script>
+<!-- config-loader.js bridges local dev ↔ Vercel env vars automatically -->
+<script src="./config-loader.js"></script>
+<!-- Supabase CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+
+<script src="./supabase.js"></script>
+<script src="./dashboard.js"></script>
+
+</body>
+</html>
