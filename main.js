@@ -9,17 +9,31 @@
 // Supabase via ESM CDN — no bundler needed
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
 
-// Keys come from config-loader.js which reads either:
-//   • config.js (local dev, gitignored)
-//   • /api/config serverless function (Vercel — reads env vars automatically)
-// window._configReady is a Promise set by config-loader.js
-const _cfg = await window._configReady.catch(err => {
-  document.body.innerHTML =
-    `<p style="padding:2rem;font-family:sans-serif;color:#B33A3A">
-       ⚠️ Could not load app config: ${err.message}
-     </p>`
-  throw err
-})
+// Keys come from either:
+//   • config.js (local dev, gitignored) — sets window.MOODSPACE_CONFIG
+//   • /api/config serverless function (Vercel — reads env vars)
+// Config loading is inlined here so Vite bundles it correctly for production.
+const _cfg = await (async () => {
+  if (window.MOODSPACE_CONFIG?.supabaseUrl) {
+    return window.MOODSPACE_CONFIG
+  }
+  try {
+    const res = await fetch('/api/config')
+    if (!res.ok) throw new Error(`/api/config returned ${res.status}`)
+    const cfg = await res.json()
+    if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) {
+      throw new Error('Incomplete config — check Vercel env vars.')
+    }
+    window.MOODSPACE_CONFIG = cfg
+    return cfg
+  } catch (err) {
+    document.body.innerHTML =
+      `<p style="padding:2rem;font-family:sans-serif;color:#B33A3A">
+         ⚠️ Could not load app config: ${err.message}
+       </p>`
+    throw err
+  }
+})()
 const {
   supabaseUrl, supabaseAnonKey,
   paypalClientId:   PAYPAL_CLIENT_ID,
