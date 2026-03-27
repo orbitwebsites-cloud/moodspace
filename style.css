@@ -148,6 +148,13 @@ input, textarea {
   -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid rgba(155, 69, 46, 0.06);
   margin-bottom: var(--space-lg);
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+#app-header.header-hidden {
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
 }
 
 .header-row {

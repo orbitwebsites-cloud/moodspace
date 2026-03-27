@@ -249,6 +249,21 @@ async function init() {
   applyTheme(state.theme)
 
   setupTabBar()
+
+  // Hide header on scroll down, show on scroll up
+  let lastScrollY = window.scrollY
+  window.addEventListener('scroll', () => {
+    const header = document.getElementById('app-header')
+    if (!header) return
+    const currentY = window.scrollY
+    if (currentY > lastScrollY && currentY > 60) {
+      header.classList.add('header-hidden')
+    } else {
+      header.classList.remove('header-hidden')
+    }
+    lastScrollY = currentY
+  }, { passive: true })
+
   await loadHistory()
   render()
 }
@@ -397,6 +412,9 @@ function render() {
     } else if (state.currentTab === 'resources') {
       mainTitle.textContent   = 'Resources'
       mainSubtitle.textContent = 'Tools to help you anchor'
+    } else if (state.currentTab === 'settings') {
+      mainTitle.textContent   = 'Settings'
+      mainSubtitle.textContent = 'Manage your account & preferences'
     }
   }
 
