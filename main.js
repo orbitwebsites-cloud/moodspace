@@ -144,7 +144,7 @@ function debounce(fn, delay = 600) {
 // STATE
 // ============================================================
 const state = {
-  currentTab:      'checkin',  // 'checkin' | 'insights' | 'resources' | 'settings'
+  currentTab:      'checkin',  // 'checkin' | 'insights' | 'resources' | 'settings' | 'chat'
   currentView:     'checkin',  // 'checkin' | 'journal'
   selectedMood:    null,
   selectedTopic:   null,
@@ -156,6 +156,9 @@ const state = {
   chartType:       localStorage.getItem('ms-chart') || 'bar',  // 'bar' | 'line' | 'dots'
   aiPersonality:   localStorage.getItem('ms-ai-personality') || 'friend',  // pro feature
   affirmation:     localStorage.getItem('ms-affirmation') || '',           // pro feature
+  chatMessages:    [],   // { role: 'user'|'ai', text: string }[]
+  chatPersonality: localStorage.getItem('ms-chat-persona') || 'friend',
+  chatTyping:      false,
 }
 
 // Auth state
@@ -415,6 +418,9 @@ function render() {
     } else if (state.currentTab === 'settings') {
       mainTitle.textContent   = 'Settings'
       mainSubtitle.textContent = 'Manage your account & preferences'
+    } else if (state.currentTab === 'chat') {
+      mainTitle.textContent    = 'AI Support'
+      mainSubtitle.textContent = 'Always someone here for you'
     }
   }
 
@@ -427,6 +433,9 @@ function render() {
     mainContent.innerHTML = renderResources()
   } else if (state.currentTab === 'settings') {
     mainContent.innerHTML = renderSettings()
+  } else if (state.currentTab === 'chat') {
+    mainContent.innerHTML = renderAIChat()
+    scrollChatToBottom()
   }
 
   attachEventListeners()
@@ -1436,6 +1445,150 @@ function attachEventListeners() {
     await supabase.auth.signOut()
     window.location.href = './auth.html'
   })
+
+  // AI Chat tab — personality switcher
+  document.querySelectorAll('.chat-persona-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.chatPersonality = btn.dataset.persona
+      localStorage.setItem('ms-chat-persona', state.chatPersonality)
+      document.querySelectorAll('.chat-persona-btn').forEach(b => b.classList.toggle('active', b.dataset.persona === state.chatPersonality))
+    })
+  })
+
+  // AI Chat tab — send button
+  document.getElementById('chat-send')?.addEventListener('click', sendChatMessage)
+  document.getElementById('chat-input')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') sendChatMessage()
+  })
+}
+
+// ============================================================
+// AI CHAT TAB
+// ============================================================
+
+const CHAT_PERSONAS = [
+  { key: 'friend',    label: 'Supportive Friend' },
+  { key: 'mentor',    label: 'Wise Mentor' },
+  { key: 'coach',     label: 'Hype Coach' },
+  { key: 'therapist', label: 'Calm Guide' },
+]
+
+function renderAIChat() {
+  const persona = state.chatPersonality
+  const msgs = state.chatMessages
+
+  const personaPills = CHAT_PERSONAS.map(p => `
+    <button class="chat-persona-btn ${persona === p.key ? 'active' : ''}" data-persona="${p.key}">
+      ${p.label}
+    </button>`).join('')
+
+  const bubbles = msgs.map(m => m.role === 'user'
+    ? `<div class="chat-bubble-wrap user"><div class="chat-bubble user">${escapeHtml(m.text)}</div></div>`
+    : `<div class="chat-bubble-wrap ai"><div class="chat-avatar-sm">🌿</div><div class="chat-bubble ai">${escapeHtml(m.text)}</div></div>`
+  ).join('')
+
+  const typing = state.chatTyping
+    ? `<div class="chat-bubble-wrap ai"><div class="chat-avatar-sm">🌿</div><div class="chat-typing"><span></span><span></span><span></span></div></div>`
+    : ''
+
+  const empty = msgs.length === 0 && !state.chatTyping
+    ? `<div class="chat-empty">
+         <div class="chat-empty-icon">💬</div>
+         <p>Start the conversation — share anything on your mind.</p>
+       </div>`
+    : ''
+
+  return `
+    <div class="ai-chat-wrap">
+      <div class="ai-support-badge">✨ AI-Powered Support</div>
+      <div class="chat-persona-row">${personaPills}</div>
+
+      <div class="chat-messages" id="chat-messages">
+        ${empty}${bubbles}${typing}
+      </div>
+
+      <div class="chat-input-row">
+        <input id="chat-input" class="chat-input" type="text"
+               placeholder="Share what's on your mind…" autocomplete="off" maxlength="500" />
+        <button id="chat-send" class="chat-send-btn" aria-label="Send">
+          <span class="material-symbols-outlined">send</span>
+        </button>
+      </div>
+    </div>`
+}
+
+function escapeHtml(str) {
+  const d = document.createElement('div')
+  d.textContent = str
+  return d.innerHTML
+}
+
+function scrollChatToBottom() {
+  requestAnimationFrame(() => {
+    const el = document.getElementById('chat-messages')
+    if (el) el.scrollTop = el.scrollHeight
+  })
+}
+
+function refreshChatMessages() {
+  const el = document.getElementById('chat-messages')
+  if (!el) return
+
+  const msgs = state.chatMessages
+  const bubbles = msgs.map(m => m.role === 'user'
+    ? `<div class="chat-bubble-wrap user"><div class="chat-bubble user">${escapeHtml(m.text)}</div></div>`
+    : `<div class="chat-bubble-wrap ai"><div class="chat-avatar-sm">🌿</div><div class="chat-bubble ai">${escapeHtml(m.text)}</div></div>`
+  ).join('')
+
+  const typing = state.chatTyping
+    ? `<div class="chat-bubble-wrap ai"><div class="chat-avatar-sm">🌿</div><div class="chat-typing"><span></span><span></span><span></span></div></div>`
+    : ''
+
+  el.innerHTML = bubbles + typing
+  scrollChatToBottom()
+}
+
+async function sendChatMessage() {
+  const input = document.getElementById('chat-input')
+  const text = input?.value.trim()
+  if (!text || state.chatTyping) return
+
+  input.value = ''
+  state.chatMessages.push({ role: 'user', text })
+  state.chatTyping = true
+  refreshChatMessages()
+
+  try {
+    const personality = AI_PERSONALITIES[state.chatPersonality] || AI_PERSONALITIES.friend
+    const systemPrompt =
+      `You are a mental wellness companion for teenagers. Respond ${personality.tone}. ` +
+      `Always validate their feelings first. Keep responses to ${isPro() ? '4-6' : '3-4'} sentences. ` +
+      'Never use bullet points. Always end with something encouraging or a gentle next step.'
+
+    // Build full conversation history for context
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      ...state.chatMessages.slice(0, -1).map(m => ({
+        role: m.role === 'user' ? 'user' : 'assistant',
+        content: m.text
+      })),
+      { role: 'user', content: text }
+    ]
+
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages, isPro: isPro() })
+    })
+    const json = await res.json()
+    const reply = json.text || "I'm here with you. 💙 Try again in a moment."
+    state.chatMessages.push({ role: 'ai', text: reply })
+  } catch {
+    state.chatMessages.push({ role: 'ai', text: "Couldn't reach AI right now — but your feelings are valid. 💙" })
+  }
+
+  state.chatTyping = false
+  refreshChatMessages()
 }
 
 // ============================================================
