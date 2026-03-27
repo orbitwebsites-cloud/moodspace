@@ -22,9 +22,6 @@ const _cfg = await window._configReady.catch(err => {
 })
 const {
   supabaseUrl, supabaseAnonKey,
-  modelsLabApiKey:  AI_API_KEY,
-  clodApiKey:       CLOD_API_KEY,
-  openRouterApiKey: OR_API_KEY,
   paypalClientId:   PAYPAL_CLIENT_ID,
   paypalPlanId:     PAYPAL_PLAN_ID,
   paypalMode:       PAYPAL_MODE,
@@ -1482,75 +1479,29 @@ function buildAIMessages(mood, note, isJournal, topic) {
   ]
 }
 
-// Call one OpenAI-compatible endpoint; returns response text or throws
-async function callOpenAICompat({ endpoint, apiKey, model, messages }) {
-  const maxTokens = isPro() ? 500 : 300  // pro gets longer, richer responses
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature: 0.75 })
-  })
-  if (!res.ok) {
-    const body = await res.text()
-    throw new Error(`${res.status}: ${body}`)
-  }
-  const json = await res.json()
-  const text = json.choices?.[0]?.message?.content?.trim()
-  if (!text) throw new Error('Empty response from AI')
-  return text
-}
-
-// Main AI caller — waterfall: ModelsLab → Clod.io (70B) → Clod.io (Mini) → OpenRouter
+// Main AI caller — hits your secure Vercel backend
 async function callAI(mood, note, isJournal, topic) {
   const messages = buildAIMessages(mood, note, isJournal, topic)
 
-  const providers = [
-    // 1️⃣ ModelsLab
-    AI_API_KEY && {
-      label:    'ModelsLab',
-      endpoint: 'https://modelslab.com/api/uncensored-chat/v1/chat/completions',
-      apiKey:   AI_API_KEY,
-      model:    'ModelsLab/Llama-3.1-8b-Uncensored-Dare'
-    },
-    // 2️⃣ Clod.io — Llama 3.3 70B (best quality from free tier)
-    CLOD_API_KEY && {
-      label:    'Clod/Llama-70B',
-      endpoint: 'https://api.clod.io/v1/chat/completions',
-      apiKey:   CLOD_API_KEY,
-      model:    'meta-llama/Llama-3.3-70B-Instruct-Turbo'
-    },
-    // 3️⃣ Clod.io — Trinity Mini (fast fallback)
-    CLOD_API_KEY && {
-      label:    'Clod/Trinity-Mini',
-      endpoint: 'https://api.clod.io/v1/chat/completions',
-      apiKey:   CLOD_API_KEY,
-      model:    'trinity-mini'
-    },
-    // 4️⃣ OpenRouter — picks best available free model automatically
-    OR_API_KEY && {
-      label:    'OpenRouter',
-      endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-      apiKey:   OR_API_KEY,
-      model:    'openrouter/free'
-    }
-  ].filter(Boolean)
+  const res = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages, isPro: isPro() })
+  })
 
-  let lastErr
-  for (const provider of providers) {
+  if (!res.ok) {
+    const errBody = await res.text()
     try {
-      const text = await callOpenAICompat({ ...provider, messages })
-      console.log(`[AI] Response from ${provider.label}`)
-      return text
-    } catch (err) {
-      console.warn(`[AI] ${provider.label} failed:`, err.message)
-      lastErr = err
+      const json = JSON.parse(errBody)
+      throw new Error(json.error || errBody)
+    } catch {
+      throw new Error(`Server error: ${res.status}`)
     }
   }
 
-  throw lastErr || new Error('All AI providers failed')
+  const json = await res.json()
+  if (!json.text) throw new Error('Empty response from AI')
+  return json.text
 }
 
 // ============================================================

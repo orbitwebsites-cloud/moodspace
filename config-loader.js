@@ -23,13 +23,13 @@ window._configReady = (async () => {
     if (!res.ok) {
       throw new Error(
         `Config endpoint returned ${res.status}. ` +
-        'Add SUPABASE_URL, SUPABASE_ANON_KEY, GEMINI_API_KEY in your Vercel project settings.'
+        'Add SUPABASE_URL, SUPABASE_ANON_KEY in your Vercel project settings.'
       )
     }
 
     const cfg = await res.json()
 
-    if (!cfg.supabaseUrl || !cfg.supabaseAnonKey || !cfg.geminiApiKey) {
+    if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) {
       throw new Error('Config endpoint returned incomplete data — check Vercel env vars.')
     }
 

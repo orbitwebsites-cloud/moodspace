@@ -1,5 +1,5 @@
-# Secret keys — NEVER commit config.js
-config.js
+# Secret keys — NEVER commit root config.js (leading slash = root only)
+/config.js
 
 # Claude Code local settings (may contain API keys in permission rules)
 .claude/

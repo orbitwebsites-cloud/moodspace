@@ -12,6 +12,13 @@ let selectedTopic = null;
 let isJournalMode = false;
 let moodChart = null;
 
+// Sanitizes user-supplied text before inserting into innerHTML
+function sanitize(str) {
+  const el = document.createElement('div');
+  el.textContent = str;
+  return el.innerHTML;
+}
+
 // Mood config: label, emoji, score used for Supabase entries
 const MOODS = {
   great:          { label: 'Great',          emoji: '😄', score: 5 },
@@ -314,34 +321,25 @@ async function setupAIButton() {
 // === API ===
 // Builds the Gemini prompt and fetches the AI response
 async function fetchGeminiResponse(mood, note, isJournal, topic) {
-  const GEMINI_KEY = 'YOUR_GEMINI_API_KEY';
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`;
-
-  let prompt;
-
-  if (isJournal && topic) {
-    const topicLabel = TOPIC_TIPS[topic]?.label || topic;
-    prompt = `A teenager is going through something personal and chose to journal about it. Their situation is closest to: ${topicLabel}. Here is what they wrote: '${note}'. Respond like a warm understanding older sibling or mentor — not a therapist. Be real, not clinical. Validate what they're feeling first, then offer 1-2 grounded honest pieces of advice. Keep it to 4-5 sentences. Do not use bullet points. Do not be preachy.`;
-  } else {
-    const moodLabel = MOODS[mood]?.label || mood;
-    prompt = `The user is feeling ${moodLabel} today. They wrote: '${note}'. Give a warm, supportive 2-3 sentence wellness response for a teenager. Be encouraging and suggest one small actionable tip.`;
-  }
-
-  const res = await fetch(endpoint, {
+  const res = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }]
+      messages: [
+        { role: 'system', content: 'You are a warm, supportive teenage mental wellness companion. Give 2-3 sentence responses.' },
+        { role: 'user', content: `I am feeling ${mood}. Here is my note: ${note}` }
+      ],
+      isPro: false
     })
   });
 
   if (!res.ok) {
     const errBody = await res.text();
-    throw new Error(`Gemini API error ${res.status}: ${errBody}`);
+    throw new Error(`API error ${res.status}: ${errBody}`);
   }
 
   const json = await res.json();
-  return json.candidates?.[0]?.content?.parts?.[0]?.text || 'You\'re doing great by reaching out. Keep going. 💙';
+  return json.text || "You're doing great by reaching out. Keep going. 💙";
 }
 
 // === DATABASE ===
@@ -651,8 +649,8 @@ async function loadRecentEntries() {
             <span class="entry-mood">${mood.emoji} ${mood.label}</span>
             <span class="entry-date">${date}</span>
           </div>
-          ${topicLabel ? `<span class="entry-topic-tag">${topicLabel}</span>` : ''}
-          ${notePreview ? `<p class="entry-note-preview">${notePreview}</p>` : ''}
+          ${topicLabel ? `<span class="entry-topic-tag">${sanitize(topicLabel)}</span>` : ''}
+          ${notePreview ? `<p class="entry-note-preview">${sanitize(notePreview)}</p>` : ''}
         </div>
       `;
     }).join('');
