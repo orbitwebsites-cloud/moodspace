@@ -230,7 +230,10 @@ let mainContent, appHeader, mainTitle, mainSubtitle, tabButtons
 // INIT
 // ============================================================
 
-document.addEventListener('DOMContentLoaded', async () => {
+// Because main.js uses top-level await (to fetch config), DOMContentLoaded
+// may have already fired by the time this module continues. We check
+// readyState so the app initialises correctly in both cases.
+async function init() {
   mainContent  = document.getElementById('main-content')
   appHeader    = document.getElementById('app-header')
   mainTitle    = document.getElementById('main-title')
@@ -248,7 +251,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupTabBar()
   await loadHistory()
   render()
-})
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init)
+} else {
+  init()
+}
 
 // ============================================================
 // AUTH
