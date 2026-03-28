@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MoodSpace — Sign In</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    /* ── Auth-page layout (not in shared style.css) ── */
+    .auth-page {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      min-height: 100vh;
+    }
+    @media (max-width: 768px) {
+      .auth-page { grid-template-columns: 1fr; }
+      .auth-brand { display: none; }
+    }
+
+    /* Left branding panel */
+    .auth-brand {
+      background: linear-gradient(135deg, #8BA888 0%, #7A9677 100%);
+      color: white;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 3rem;
+    }
+    .auth-brand .logo   { font-size: 2rem; font-weight: 700; font-family: var(--font-heading); margin-bottom: .5rem; }
+    .auth-brand .tagline { font-size: 1.15rem; opacity: .9; margin-bottom: 2.5rem; }
+    .auth-brand .features { list-style: none; display: flex; flex-direction: column; gap: 1.25rem; }
+    .auth-brand .features li { display: flex; align-items: flex-start; gap: .75rem; opacity: .93; font-size: .95rem; }
+    .auth-brand .features .icon { font-size: 1.4rem; flex-shrink: 0; margin-top: .1rem; }
+
+    /* Right form panel */
+    .auth-form-panel {
+      display: flex; flex-direction: column;
+      justify-content: center; align-items: center;
+      padding: 2.5rem 2rem; overflow-y: auto;
+      background: var(--color-bg-main);
+    }
+    .auth-form-wrap { width: 100%; max-width: 400px; }
+
+    /* Tab switcher */
+    .auth-tabs {
+      display: flex; gap: .5rem; margin-bottom: 1.75rem;
+      background: rgba(0,0,0,0.05); padding: 4px; border-radius: 10px;
+    }
+    .auth-tab-btn {
+      flex: 1; padding: .5rem 1rem; border-radius: 8px;
+      background: transparent; color: var(--color-text-muted);
+      font-weight: 600; font-size: .9rem; border: none; cursor: pointer;
+      font-family: var(--font-body); transition: .15s ease;
+    }
+    .auth-tab-btn.active {
+      background: var(--color-bg-card); color: var(--color-text-main);
+      box-shadow: 0 2px 8px rgba(0,0,0,.06);
+    }
+
+    /* Form elements */
+    .auth-form-title { font-size: 1.45rem; font-weight: 600; font-family: var(--font-heading); margin-bottom: .25rem; }
+    .auth-form-sub   { color: var(--color-text-muted); font-size: .9rem; margin-bottom: 1.4rem; }
+    .form-group      { margin-bottom: .9rem; }
+    .form-group label {
+      display: block; font-weight: 500; font-size: .85rem;
+      margin-bottom: .3rem; color: var(--color-text-main);
+    }
+    .form-group input,
+    .form-group select {
+      width: 100%; padding: .65rem .85rem;
+      border: 1.5px solid #E0E2DF; border-radius: var(--radius-sm);
+      background: var(--color-bg-card); color: var(--color-text-main);
+      font-family: var(--font-body); font-size: .95rem;
+      outline: none; transition: border-color .15s ease;
+    }
+    .form-group input:focus, .form-group select:focus {
+      border-color: var(--color-accent-primary);
+    }
+
+    /* Primary & Google buttons (override shared .btn for auth context) */
+    .btn-primary {
+      width: 100%; padding: .8rem; margin-top: .35rem;
+      background: var(--color-accent-primary); color: white;
+      border: none; border-radius: var(--radius-pill);
+      font-size: .95rem; font-weight: 600; font-family: var(--font-body);
+      cursor: pointer; transition: .15s ease;
+    }
+    .btn-primary:hover:not(:disabled) { background: var(--color-accent-primary-hover); }
+    .btn-primary:disabled { opacity: .6; cursor: not-allowed; }
+
+    .btn-google {
+      width: 100%; display: flex; align-items: center; justify-content: center;
+      gap: .6rem; padding: .75rem; margin-top: .6rem;
+      border: 1.5px solid #E0E2DF; border-radius: var(--radius-pill);
+      background: var(--color-bg-card); color: var(--color-text-main);
+      font-weight: 600; font-size: .9rem; font-family: var(--font-body);
+      cursor: pointer; transition: .15s ease;
+    }
+    .btn-google:hover { border-color: #4285F4; background: #F8F9FA; }
+
+    /* Divider */
+    .auth-divider {
+      text-align: center; color: var(--color-text-muted);
+      font-size: .82rem; margin: .85rem 0; position: relative;
+    }
+    .auth-divider::before, .auth-divider::after {
+      content: ''; position: absolute; top: 50%;
+      width: 42%; height: 1px; background: #E0E2DF;
+    }
+    .auth-divider::before { left: 0; }
+    .auth-divider::after  { right: 0; }
+
+    /* Auth message */
+    .auth-message { padding: .65rem .9rem; border-radius: var(--radius-sm); font-size: .88rem; margin-bottom: .9rem; }
+    .auth-message.success { background: #D4EDDA; color: #155724; }
+    .auth-message.error   { background: #F8D7DA; color: #721C24; }
+
+    /* Role selector */
+    .role-selector { display: flex; gap: .5rem; }
+    .role-btn {
+      flex: 1; padding: .65rem; border: 1.5px solid #E0E2DF;
+      border-radius: var(--radius-sm); background: var(--color-bg-card);
+      color: var(--color-text-main); font-size: .85rem; font-weight: 500;
+      font-family: var(--font-body); cursor: pointer; text-align: center;
+      transition: .15s ease;
+    }
+    .role-btn.selected, .role-btn:hover {
+      border-color: var(--color-accent-primary);
+      background: rgba(139,168,136,.1);
+      color: var(--color-accent-primary-hover);
+    }
+
+    /* Forgot password link */
+    .forgot-link {
+      display: block; text-align: right; font-size: .82rem;
+      margin-top: .25rem; color: var(--color-accent-primary); cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+<div class="auth-page">
+
+  <!-- LEFT BRANDING PANEL -->
+  <div class="auth-brand">
+    <div class="logo">🌈 MoodSpace</div>
+    <p class="tagline">Your daily mental health check-in. Safe, private, and yours.</p>
+
+    <ul class="features">
+      <li>
+        <span class="icon">🧠</span>
+        <div>
+          <strong>Daily mood tracking</strong><br>
+          Quick check-ins with AI-powered support to help you understand how you feel.
+        </div>
+      </li>
+      <li>
+        <span class="icon">📓</span>
+        <div>
+          <strong>Private journaling</strong><br>
+          A safe space to write about heartbreak, stress, family, or anything else on your mind.
+        </div>
+      </li>
+      <li>
+        <span class="icon">📊</span>
+        <div>
+          <strong>Your personal insights</strong><br>
+          See your mood trends over time and celebrate your streaks.
+        </div>
+      </li>
+    </ul>
+  </div>
+
+  <!-- RIGHT FORM PANEL -->
+  <div class="auth-form-panel">
+    <div class="auth-form-wrap">
+
+      <!-- Tab switcher -->
+      <div class="auth-tabs">
+        <button class="auth-tab-btn active" id="login-tab" data-label="Log in">Log in</button>
+        <button class="auth-tab-btn" id="signup-tab" data-label="Sign up">Sign up</button>
+      </div>
+
+      <!-- Auth message (success / error) -->
+      <div id="auth-message" class="auth-message" style="display:none;"></div>
+
+      <!-- ── LOGIN FORM ── -->
+      <form id="login-form" novalidate>
+        <h2 class="auth-form-title">Welcome back 👋</h2>
+        <p class="auth-form-sub">Log in to your MoodSpace account.</p>
+
+        <div class="form-group">
+          <label for="login-email">Email</label>
+          <input type="email" id="login-email" placeholder="you@school.edu" autocomplete="email" required />
+        </div>
+
+        <div class="form-group">
+          <label for="login-password">Password</label>
+          <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password" required />
+          <a class="forgot-link" id="forgot-password-link">Forgot password?</a>
+        </div>
+
+        <button type="submit" class="btn-primary" id="login-btn" data-label="Log in">Log in</button>
+
+        <div class="auth-divider">or</div>
+
+        <button type="button" class="btn-google" id="google-login-btn">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
+            <path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z" fill="#34A853"/>
+            <path d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957C.347 6.175 0 7.548 0 9s.348 2.825.957 4.039l3.007-2.332z" fill="#FBBC05"/>
+            <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.961L3.964 7.293C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
+          </svg>
+          Continue with Google
+        </button>
+      </form>
+
+      <!-- ── SIGN UP FORM ── -->
+      <form id="signup-form" class="hidden" novalidate>
+        <h2 class="auth-form-title">Create your account</h2>
+        <p class="auth-form-sub">Join MoodSpace — it only takes a minute.</p>
+
+        <div class="form-group">
+          <label for="display-name">Your first name (or nickname)</label>
+          <input type="text" id="display-name" placeholder="Maya" required />
+        </div>
+
+        <div class="form-group">
+          <label for="signup-email">Email</label>
+          <input type="email" id="signup-email" placeholder="you@school.edu" autocomplete="email" required />
+        </div>
+
+        <div class="form-group">
+          <label for="signup-password">Password</label>
+          <input type="password" id="signup-password" placeholder="At least 6 characters" autocomplete="new-password" required />
+        </div>
+
+        <div class="form-group">
+          <label>I am a...</label>
+          <div class="role-selector">
+            <button type="button" class="role-btn selected" onclick="selectRole('student', this)">🎒 Student</button>
+            <button type="button" class="role-btn" onclick="selectRole('counselor', this)">🏫 School Counselor</button>
+          </div>
+          <!-- Hidden select keeps the value in sync for auth.js -->
+          <select id="role" style="display:none">
+            <option value="student" selected>student</option>
+            <option value="counselor">counselor</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="school">School name <span style="color:var(--text-muted)">(optional)</span></label>
+          <input type="text" id="school" placeholder="Lincoln High School" />
+        </div>
+
+        <div class="form-group" id="grade-group">
+          <label for="grade">Grade</label>
+          <select id="grade">
+            <option value="">Select your grade</option>
+            <option value="6th">6th grade</option>
+            <option value="7th">7th grade</option>
+            <option value="8th">8th grade</option>
+            <option value="9th">9th grade</option>
+            <option value="10th">10th grade</option>
+            <option value="11th">11th grade</option>
+            <option value="12th">12th grade</option>
+          </select>
+        </div>
+
+        <button type="submit" class="btn-primary" id="signup-btn" data-label="Create account">Create account</button>
+      </form>
+
+    </div>
+  </div><!-- end auth-form-panel -->
+</div><!-- end auth-page -->
+
+<!-- Local dev: config.js sets the global (gitignored). onerror skips it silently on Vercel -->
+<script src="./config.js" onerror="void 0"></script>
+<!-- config-loader.js bridges local dev ↔ Vercel env vars automatically -->
+<script src="./config-loader.js"></script>
+<!-- Supabase CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="./supabase.js"></script>
+<script src="./auth.js"></script>
+
+<script>
+  // Syncs the hidden role <select> when user clicks a role button
+  function selectRole(value, clickedBtn) {
+    document.getElementById('role').value = value;
+    document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('selected'));
+    clickedBtn.classList.add('selected');
+
+    // Show/hide grade for students
+    const gradeGroup = document.getElementById('grade-group');
+    if (gradeGroup) {
+      gradeGroup.style.display = value === 'student' ? 'block' : 'none';
+    }
+  }
+</script>
+
+</body>
+</html>
