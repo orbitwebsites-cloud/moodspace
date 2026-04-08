@@ -7,7 +7,7 @@
 
 // === IMPORTS ===
 // Supabase via ESM CDN — no bundler needed
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.100.1/+esm'
 
 // Keys come from either:
 //   • config.js (local dev, gitignored) — sets window.MOODSPACE_CONFIG
@@ -27,18 +27,17 @@ const _cfg = await (async () => {
     window.MOODSPACE_CONFIG = cfg
     return cfg
   } catch (err) {
-    document.body.innerHTML =
-      `<p style="padding:2rem;font-family:sans-serif;color:#B33A3A">
-         ⚠️ Could not load app config: ${err.message}
-       </p>`
+    document.body.textContent = ''
+    const errP = document.createElement('p')
+    errP.style.cssText = 'padding:2rem;font-family:sans-serif;color:#B33A3A'
+    errP.textContent = `⚠️ Could not load app config: ${err.message}`
+    document.body.appendChild(errP)
     throw err
   }
 })()
 const {
   supabaseUrl, supabaseAnonKey,
-  paypalClientId:   PAYPAL_CLIENT_ID,
-  paypalPlanId:     PAYPAL_PLAN_ID,
-  paypalMode:       PAYPAL_MODE,
+  stripePublishableKey: STRIPE_PUBLISHABLE_KEY,
 } = _cfg
 
 // ── Pro feature gates ────────────────────────────────────────
@@ -56,7 +55,22 @@ const AI_PERSONALITIES = {
   journal:   { label: '📓 Journaling Partner', desc: 'Asks deep questions to help you reflect',            tone: 'like a journaling partner — ask one meaningful reflective question after validating their feelings, to deepen self-awareness' },
 }
 
-function isPro() { return !!currentProfile?.is_pro }
+function isPro() {
+  if (!currentProfile) return false
+  if (currentProfile.is_pro) return true   // paid subscriber
+  // Review-reward trial
+  if (currentProfile.pro_trial_expires_at) {
+    return new Date(currentProfile.pro_trial_expires_at) > new Date()
+  }
+  return false
+}
+
+function trialDaysLeft() {
+  const exp = currentProfile?.pro_trial_expires_at
+  if (!exp || currentProfile?.is_pro) return 0
+  const ms = new Date(exp) - new Date()
+  return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)))
+}
 
 // Checks + increments today's AI usage.
 // Uses Supabase (entries with ai_response today) as the source of truth —
@@ -82,18 +96,29 @@ async function checkDailyAiLimit() {
   return (count || 0) < FREE_AI_LIMIT
 }
 
-// Load PayPal JS SDK dynamically (only when needed)
-let _paypalLoaded = false
-function loadPayPalSDK() {
-  if (_paypalLoaded || !PAYPAL_CLIENT_ID) return Promise.resolve()
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script')
-    script.src   = `https://www.paypal.com/sdk/js?client-id=${PAYPAL_CLIENT_ID}&vault=true&intent=subscription`
-    script.setAttribute('data-sdk-integration-source', 'button-factory')
-    script.onload  = () => { _paypalLoaded = true; resolve() }
-    script.onerror = reject
-    document.head.appendChild(script)
-  })
+// Redirect user to Stripe Checkout for Pro subscription
+async function startStripeCheckout() {
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) throw new Error('Not signed in')
+
+    showToast('Redirecting to checkout…', 'info')
+
+    const res = await fetch('/api/stripe-checkout', {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+    })
+    const json = await res.json()
+    if (!res.ok) throw new Error(json.error || 'Could not create checkout session')
+
+    window.location.href = json.url
+  } catch (err) {
+    console.error('[Stripe] Checkout error:', err)
+    showToast('Could not start checkout — please try again', 'error')
+  }
 }
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey)
@@ -159,6 +184,8 @@ const state = {
   chatMessages:    [],   // { role: 'user'|'ai', text: string }[]
   chatPersonality: localStorage.getItem('ms-chat-persona') || 'friend',
   chatTyping:      false,
+  hasReviewed:     false,  // loaded from Supabase after auth
+  reviewRating:    0,      // currently selected star rating in the review form
 }
 
 // Auth state
@@ -248,6 +275,19 @@ async function init() {
   // verifyAuth() may redirect unauthenticated users — stop here if so
   if (!currentUser) return
 
+  // Handle Stripe Checkout return
+  const stripeResult = new URLSearchParams(window.location.search).get('stripe')
+  if (stripeResult === 'success') {
+    // Clean up the URL then re-fetch profile (webhook may have already flipped is_pro)
+    history.replaceState({}, '', window.location.pathname)
+    const { data: fresh } = await supabase.from('profiles').select('*').eq('id', currentUser.id).single()
+    if (fresh) currentProfile = fresh
+    showToast('🎉 Welcome to MoodSpace Pro! Enjoy unlimited access.', 'success')
+  } else if (stripeResult === 'cancel') {
+    history.replaceState({}, '', window.location.pathname)
+    showToast('Checkout cancelled — you can upgrade anytime 💙', 'info')
+  }
+
   // Restore saved theme before first render
   applyTheme(state.theme)
 
@@ -329,6 +369,14 @@ async function verifyAuth() {
     window.location.href = 'dashboard.html'
     return
   }
+
+  // Check if user has already submitted a review
+  const { data: review } = await supabase
+    .from('reviews')
+    .select('id')
+    .eq('user_id', currentUser.id)
+    .maybeSingle()
+  state.hasReviewed = !!review
 
   console.log('[Auth] Signed in as:', currentProfile?.display_name)
 }
@@ -947,19 +995,20 @@ function renderSettings() {
     ? `<span style="color:var(--color-primary);font-weight:700">Unlimited ✨</span>`
     : `<span style="color:var(--color-text-muted)">${FREE_AI_LIMIT}/day — <a href="#" id="link-upgrade" style="color:var(--color-primary);font-weight:600">Upgrade for unlimited</a></span>`
 
+  const days = trialDaysLeft()
+  const onTrial = !currentProfile?.is_pro && days > 0
+
   // Pro badge or upgrade card
   const proSection = pro ? `
     <div class="settings-section pro-active-card">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
         <span class="pro-badge">PRO</span>
-        <span style="font-weight:700">MoodSpace Pro — Active</span>
+        <span style="font-weight:700">${onTrial ? `Review Trial — ${days} day${days === 1 ? '' : 's'} left` : 'MoodSpace Pro — Active'}</span>
       </div>
       <div style="font-size:0.85rem;color:var(--color-text-muted)">
-        Unlimited AI · Full history · All themes · ${PRO_PRICE}
+        ${onTrial ? 'Enjoying Pro? Subscribe to keep it after your trial ends.' : `Unlimited AI · Full history · All themes · ${PRO_PRICE}`}
       </div>
-      <button id="btn-cancel-sub" class="btn-danger-pill" style="margin-top:14px;font-size:0.8rem">
-        Cancel subscription
-      </button>
+      ${!onTrial ? `<button id="btn-cancel-sub" class="btn-danger-pill" style="margin-top:14px;font-size:0.8rem">Cancel subscription</button>` : ''}
     </div>
   ` : `
     <div class="settings-section upgrade-card">
@@ -974,8 +1023,10 @@ function renderSettings() {
         <li><span class="material-symbols-outlined">palette</span> All 5 color themes</li>
         <li><span class="material-symbols-outlined">workspace_premium</span> Pro badge on your profile</li>
       </ul>
-      <div id="paypal-button-container" style="margin-top:16px"></div>
-      <div id="paypal-loading" style="text-align:center;padding:12px;color:var(--color-text-muted);font-size:0.9rem">
+      <button id="btn-stripe-checkout" class="btn btn-primary" style="margin-top:16px;width:100%">
+        Subscribe with Stripe — ${PRO_PRICE}
+      </button>
+      <div id="stripe-loading" style="text-align:center;padding:12px;color:var(--color-text-muted);font-size:0.9rem">
         Loading secure checkout…
       </div>
     </div>
@@ -1097,6 +1148,28 @@ function renderSettings() {
         </div>
       </div>
 
+      <!-- Review for 3-day Pro reward -->
+      ${!state.hasReviewed ? `
+      <div class="settings-section review-card">
+        <div class="review-card-header">
+          <span class="review-card-emoji">⭐</span>
+          <div>
+            <div class="review-card-title">Enjoying MoodSpace?</div>
+            <div class="review-card-sub">Leave a review and get <strong>3 days of Pro free!</strong></div>
+          </div>
+        </div>
+        <div class="star-row" id="star-row">
+          ${[1,2,3,4,5].map(n => `<button class="star-btn" data-star="${n}" aria-label="${n} star">☆</button>`).join('')}
+        </div>
+        <textarea id="review-text" class="settings-input review-textarea"
+          placeholder="What do you love about MoodSpace? What could be better?"
+          maxlength="500" rows="3"></textarea>
+        <button id="btn-submit-review" class="btn btn-primary" style="margin-top:10px">
+          Submit &amp; unlock 3 days Pro ✨
+        </button>
+      </div>
+      ` : ''}
+
       <!-- Sign out -->
       <div class="settings-section">
         <button id="btn-signout" class="btn btn-secondary">
@@ -1110,75 +1183,9 @@ function renderSettings() {
 }
 
 // ============================================================
-// PAYPAL SUBSCRIPTION
+// STRIPE SUBSCRIPTION
 // ============================================================
-
-async function mountPayPalButton() {
-  if (isPro() || !PAYPAL_CLIENT_ID || !PAYPAL_PLAN_ID) return
-
-  try {
-    await loadPayPalSDK()
-  } catch {
-    const el = document.getElementById('paypal-loading')
-    if (el) el.textContent = 'Could not load PayPal — check your connection and refresh.'
-    return
-  }
-
-  const container = document.getElementById('paypal-button-container')
-  const loading   = document.getElementById('paypal-loading')
-  if (!container || !loading) return
-
-  loading.style.display = 'none'
-
-  window.paypal.Buttons({
-    style: {
-      shape:  'pill',
-      color:  'gold',
-      layout: 'vertical',
-      label:  'subscribe',
-    },
-    createSubscription: (_data, actions) => {
-      return actions.subscription.create({ plan_id: PAYPAL_PLAN_ID })
-    },
-    onApprove: async (_data, _actions) => {
-      showToast('Payment approved — activating Pro…', 'info')
-
-      try {
-        // Get the user's current session JWT to send to our backend
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session?.access_token) throw new Error('No auth session')
-
-        const res = await fetch('/api/paypal-subscribe', {
-          method: 'POST',
-          headers: {
-            'Content-Type':  'application/json',
-            'Authorization': `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ subscriptionId: _data.subscriptionID }),
-        })
-        const json = await res.json()
-        if (!res.ok) throw new Error(json.error || 'Activation failed')
-
-        // Refresh profile to get updated is_pro flag
-        const { data: profile } = await supabase
-          .from('profiles').select('*').eq('id', currentUser.id).single()
-        if (profile) currentProfile = profile
-
-        showToast('🎉 Welcome to MoodSpace Pro!', 'success')
-        render()
-      } catch (err) {
-        showToast('Payment went through but activation failed — contact support. Error: ' + err.message, 'error')
-      }
-    },
-    onError: (err) => {
-      console.error('[PayPal] Button error:', err)
-      showToast('PayPal error — please try again', 'error')
-    },
-    onCancel: () => {
-      showToast('Subscription cancelled — you can upgrade anytime 💙', 'info')
-    },
-  }).render('#paypal-button-container')
-}
+// startStripeCheckout() is defined near the top of the file
 
 // Export all journal entries as a .txt file (Pro)
 function handleExportJournal() {
@@ -1424,21 +1431,90 @@ function attachEventListeners() {
   // Upgrade link in AI usage row
   document.getElementById('link-upgrade')?.addEventListener('click', (e) => {
     e.preventDefault()
-    document.getElementById('paypal-button-container')?.scrollIntoView({ behavior: 'smooth' })
+    document.getElementById('btn-stripe-checkout')?.scrollIntoView({ behavior: 'smooth' })
   })
 
   // Settings — cancel subscription
   document.getElementById('btn-cancel-sub')?.addEventListener('click', () => {
     if (confirm('Cancel your Pro subscription? You can re-subscribe any time.')) {
-      window.open('https://www.paypal.com/myaccount/autopay/', '_blank')
-      showToast('Manage your subscription on PayPal — changes take effect at next billing date', 'info')
+      window.open('https://billing.stripe.com/p/login', '_blank')
+      showToast('Manage your subscription on Stripe — changes take effect at next billing date', 'info')
     }
   })
 
-  // Mount PayPal button after DOM is ready (async, non-blocking)
-  if (state.currentTab === 'settings' && !isPro()) {
-    mountPayPalButton()
-  }
+  // Stripe checkout button
+  document.getElementById('btn-stripe-checkout')?.addEventListener('click', startStripeCheckout)
+
+  // Review card — star rating
+  document.querySelectorAll('.star-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const picked = parseInt(btn.dataset.star)
+      state.reviewRating = picked
+      document.querySelectorAll('.star-btn').forEach(b => {
+        const n = parseInt(b.dataset.star)
+        b.textContent = n <= picked ? '★' : '☆'
+        b.classList.toggle('star-filled', n <= picked)
+      })
+    })
+  })
+
+  // Review card — submit
+  document.getElementById('btn-submit-review')?.addEventListener('click', async () => {
+    if (!state.reviewRating) {
+      showToast('Pick a star rating first ⭐', 'info')
+      return
+    }
+    const body = sanitizeInput(document.getElementById('review-text')?.value || '', 500)
+    const btn  = document.getElementById('btn-submit-review')
+    btn.disabled    = true
+    btn.textContent = 'Submitting…'
+
+    try {
+      // Save the review
+      const { error: reviewErr } = await supabase.from('reviews').insert([{
+        user_id: currentUser.id,
+        rating:  state.reviewRating,
+        body:    body || null
+      }])
+      if (reviewErr) throw reviewErr
+
+      // Grant 3-day trial via secure backend (validates review exists server-side)
+      const { data: { session: trialSession } } = await supabase.auth.getSession()
+      const trialRes = await fetch('/api/grant-trial', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(trialSession?.access_token ? { 'Authorization': `Bearer ${trialSession.access_token}` } : {})
+        }
+      })
+      if (!trialRes.ok) {
+        const errJson = await trialRes.json().catch(() => ({}))
+        console.warn('[Review] Trial grant failed:', errJson.error)
+      }
+
+      // Refresh local profile
+      const { data: fresh } = await supabase
+        .from('profiles').select('*').eq('id', currentUser.id).single()
+      if (fresh) currentProfile = fresh
+
+      state.hasReviewed  = true
+      state.reviewRating = 0
+      showToast("Thanks for the review! You've unlocked 3 days of Pro 🎉", 'success')
+      render()
+    } catch (err) {
+      console.error('[Review]', err.message)
+      if (err.code === '23505') {
+        // Already reviewed — just mark it locally
+        state.hasReviewed = true
+        showToast("You've already left a review 💙", 'info')
+        render()
+      } else {
+        showToast('Could not submit — please try again', 'error')
+        btn.disabled    = false
+        btn.textContent = 'Submit & unlock 3 days Pro ✨'
+      }
+    }
+  })
 
   // Settings — sign out
   document.getElementById('btn-signout')?.addEventListener('click', async () => {
@@ -1474,6 +1550,20 @@ const CHAT_PERSONAS = [
 ]
 
 function renderAIChat() {
+  if (!isPro()) {
+    return `
+      <div class="ai-chat-wrap">
+        <div class="chat-paywall">
+          <div class="chat-paywall-icon">✨</div>
+          <h2 class="chat-paywall-title">AI Chat is a Pro feature</h2>
+          <p class="chat-paywall-desc">Upgrade to get unlimited conversations with your AI wellness companion — available in any mood, any time.</p>
+          <button class="btn-upgrade-chat" onclick="(function(){ state.currentTab='settings'; tabButtons.forEach(b=>b.classList.toggle('active',b.dataset.tab==='settings')); render(); scrollTo(0,0); })()">
+            Upgrade to Pro
+          </button>
+        </div>
+      </div>`
+  }
+
   const persona = state.chatPersonality
   const msgs = state.chatMessages
 
@@ -1524,10 +1614,17 @@ function escapeHtml(str) {
 }
 
 function scrollChatToBottom() {
-  requestAnimationFrame(() => {
+  // Double-rAF ensures DOM is fully painted before measuring
+  requestAnimationFrame(() => requestAnimationFrame(() => {
     const el = document.getElementById('chat-messages')
-    if (el) el.scrollTop = el.scrollHeight
-  })
+    if (!el) return
+    const lastBubble = el.lastElementChild
+    if (lastBubble) {
+      lastBubble.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    } else {
+      el.scrollTop = el.scrollHeight
+    }
+  }))
 }
 
 function refreshChatMessages() {
@@ -1561,9 +1658,14 @@ async function sendChatMessage() {
   try {
     const personality = AI_PERSONALITIES[state.chatPersonality] || AI_PERSONALITIES.friend
     const systemPrompt =
-      `You are a mental wellness companion for teenagers. Respond ${personality.tone}. ` +
-      `Always validate their feelings first. Keep responses to ${isPro() ? '4-6' : '3-4'} sentences. ` +
-      'Never use bullet points. Always end with something encouraging or a gentle next step.'
+      `You are a caring, friendly mental wellness companion made specifically for teenagers. ` +
+      `Respond ${personality.tone}. ` +
+      `Always acknowledge and validate their feelings first — never dismiss or minimise what they're going through. ` +
+      `Use warm, natural language (contractions, casual words) so it feels like a real conversation. ` +
+      `Keep responses to ${isPro() ? '4-6' : '3-4'} sentences. ` +
+      `Never use bullet points or lists. Never lecture or be preachy. ` +
+      `Always end with something encouraging, a gentle question, or a small next step. ` +
+      `If someone seems to be in crisis or mentions self-harm, gently remind them that a trusted adult or a helpline like 988 can help.`
 
     // Build full conversation history for context
     const messages = [
@@ -1575,16 +1677,25 @@ async function sendChatMessage() {
       { role: 'user', content: text }
     ]
 
+    const { data: { session: chatSession } } = await supabase.auth.getSession()
     const res = await fetch('/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages, isPro: isPro() })
+      headers: {
+        'Content-Type': 'application/json',
+        ...(chatSession?.access_token ? { 'Authorization': `Bearer ${chatSession.access_token}` } : {})
+      },
+      body: JSON.stringify({ messages })
     })
+    if (!res.ok) {
+      const errBody = await res.text()
+      throw new Error(`${res.status}: ${errBody}`)
+    }
     const json = await res.json()
     const reply = json.text || "I'm here with you. 💙 Try again in a moment."
     state.chatMessages.push({ role: 'ai', text: reply })
-  } catch {
-    state.chatMessages.push({ role: 'ai', text: "Couldn't reach AI right now — but your feelings are valid. 💙" })
+  } catch (err) {
+    console.warn('[Chat] AI failed:', err.message)
+    state.chatMessages.push({ role: 'ai', text: "I'm having trouble connecting right now. Try again in a moment 💙" })
   }
 
   state.chatTyping = false
@@ -1677,10 +1788,14 @@ function buildAIMessages(mood, note, isJournal, topic) {
 async function callAI(mood, note, isJournal, topic) {
   const messages = buildAIMessages(mood, note, isJournal, topic)
 
+  const { data: { session: aiSession } } = await supabase.auth.getSession()
   const res = await fetch('/api/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages, isPro: isPro() })
+    headers: {
+      'Content-Type': 'application/json',
+      ...(aiSession?.access_token ? { 'Authorization': `Bearer ${aiSession.access_token}` } : {})
+    },
+    body: JSON.stringify({ messages })
   })
 
   if (!res.ok) {

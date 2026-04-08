@@ -232,24 +232,18 @@
 
         <div class="form-group">
           <label for="signup-password">Password</label>
-          <input type="password" id="signup-password" placeholder="At least 6 characters" autocomplete="new-password" required />
+          <input type="password" id="signup-password" placeholder="At least 8 characters" autocomplete="new-password" required minlength="8" />
+          <span style="font-size:0.78rem;color:var(--color-text-muted);margin-top:2px;display:block">Must be 8+ characters with at least one number</span>
         </div>
 
-        <div class="form-group">
-          <label>I am a...</label>
-          <div class="role-selector">
-            <button type="button" class="role-btn selected" onclick="selectRole('student', this)">🎒 Student</button>
-            <button type="button" class="role-btn" onclick="selectRole('counselor', this)">🏫 School Counselor</button>
-          </div>
-          <!-- Hidden select keeps the value in sync for auth.js -->
-          <select id="role" style="display:none">
-            <option value="student" selected>student</option>
-            <option value="counselor">counselor</option>
-          </select>
-        </div>
+        <!-- Hidden role field — defaults to student, set to counselor if valid code entered -->
+        <select id="role" style="display:none">
+          <option value="student" selected>student</option>
+          <option value="counselor">counselor</option>
+        </select>
 
         <div class="form-group">
-          <label for="school">School name <span style="color:var(--text-muted)">(optional)</span></label>
+          <label for="school">School name <span style="color:var(--color-text-muted)">(optional)</span></label>
           <input type="text" id="school" placeholder="Lincoln High School" />
         </div>
 
@@ -268,6 +262,21 @@
         </div>
 
         <button type="submit" class="btn-primary" id="signup-btn" data-label="Create account">Create account</button>
+
+        <!-- School staff access — optional, hidden by default -->
+        <p style="text-align:center;margin-top:14px">
+          <a id="staff-toggle" href="#" style="font-size:0.82rem;color:var(--color-text-muted);text-decoration:none">
+            🏫 Are you school staff?
+          </a>
+        </p>
+        <div id="staff-code-group" class="form-group" style="display:none;margin-top:4px">
+          <label for="counselor-code">Staff access code</label>
+          <input type="text" id="counselor-code" placeholder="Enter your school's staff code"
+                 autocomplete="off" spellcheck="false" />
+          <span style="font-size:0.78rem;color:var(--color-text-muted);margin-top:4px;display:block">
+            This grants you access to the counselor dashboard. Contact your admin for the code.
+          </span>
+        </div>
       </form>
 
     </div>
@@ -279,24 +288,10 @@
 <!-- config-loader.js bridges local dev ↔ Vercel env vars automatically -->
 <script src="./config-loader.js"></script>
 <!-- Supabase CDN -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.100.1/dist/umd/supabase.min.js"></script>
 <script src="./supabase.js"></script>
 <script src="./auth.js"></script>
 
-<script>
-  // Syncs the hidden role <select> when user clicks a role button
-  function selectRole(value, clickedBtn) {
-    document.getElementById('role').value = value;
-    document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('selected'));
-    clickedBtn.classList.add('selected');
-
-    // Show/hide grade for students
-    const gradeGroup = document.getElementById('grade-group');
-    if (gradeGroup) {
-      gradeGroup.style.display = value === 'student' ? 'block' : 'none';
-    }
-  }
-</script>
 
 </body>
 </html>

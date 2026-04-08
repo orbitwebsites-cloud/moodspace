@@ -93,6 +93,22 @@ function initAuthPage() {
   if (loginForm) loginForm.addEventListener('submit', handleLogin);
   if (signupForm) signupForm.addEventListener('submit', handleSignup);
 
+  // Staff code toggle
+  const staffToggle = document.getElementById('staff-toggle');
+  const staffCodeGroup = document.getElementById('staff-code-group');
+  if (staffToggle && staffCodeGroup) {
+    staffToggle.addEventListener('click', (e) => {
+      e.preventDefault();
+      const visible = staffCodeGroup.style.display !== 'none';
+      staffCodeGroup.style.display = visible ? 'none' : 'block';
+      staffToggle.textContent = visible ? '🏫 Are you school staff?' : '✕ Cancel staff sign-up';
+      if (visible) {
+        document.getElementById('counselor-code').value = '';
+        document.getElementById('role').value = 'student';
+      }
+    });
+  }
+
   // Google OAuth button
   const googleBtn = document.getElementById('google-login-btn');
   if (googleBtn) googleBtn.addEventListener('click', handleGoogleLogin);
@@ -109,39 +125,66 @@ async function handleSignup(e) {
   clearMessages();
 
   const displayName = document.getElementById('display-name').value.trim();
-  const email = document.getElementById('signup-email').value.trim();
-  const password = document.getElementById('signup-password').value;
-  const role = document.getElementById('role').value;
-  const school = document.getElementById('school').value.trim();
-  const grade = document.getElementById('grade') ? document.getElementById('grade').value : null;
+  const email       = document.getElementById('signup-email').value.trim();
+  const password    = document.getElementById('signup-password').value;
+  const school      = document.getElementById('school').value.trim();
+  const grade       = document.getElementById('grade')?.value || null;
+  const staffCode   = document.getElementById('counselor-code')?.value.trim() || '';
 
-  if (!displayName || !email || !password || !role) {
+  if (!displayName || !email || !password) {
     showMessage('Please fill in all required fields.', 'error');
     return;
   }
 
+  if (password.length < 8) {
+    showMessage('Password must be at least 8 characters long.', 'error');
+    return;
+  }
+  if (!/\d/.test(password)) {
+    showMessage('Password must include at least one number.', 'error');
+    return;
+  }
+
   showLoading(true, 'signup-btn');
-  console.log('[Auth] Attempting sign up for:', email);
+  console.log('[Auth] Attempting sign up');
 
   try {
+    // If a staff code was entered, verify it server-side before proceeding
+    let role = 'student';
+    let resolvedSchool = school; // may be overridden by the code lookup
+    if (staffCode) {
+      const verifyRes = await fetch('/api/verify-counselor-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: staffCode })
+      });
+      const result = await verifyRes.json();
+      if (!result.valid) {
+        showMessage('That staff code is incorrect. Please check with your school admin.', 'error');
+        showLoading(false, 'signup-btn');
+        return;
+      }
+      role = 'counselor';
+      // Auto-fill the school from the code so it matches exactly in the DB
+      if (result.school) resolvedSchool = result.school;
+      console.log('[Auth] Valid counselor code — signing up as counselor for:', resolvedSchool);
+    }
+
     // Create the auth user in Supabase
     const { data, error } = await supabaseClient.auth.signUp({
       email,
       password,
-      options: {
-        data: { display_name: displayName, role }
-      }
+      options: { data: { display_name: displayName, role } }
     });
 
     if (error) throw error;
 
-    // Save extended profile info to the profiles table
     if (data.user) {
-      await createProfile(data.user, { displayName, email, role, school, grade });
+      await createProfile(data.user, { displayName, email, role, school: resolvedSchool, grade });
     }
 
     showMessage('Account created! Check your email to confirm, then log in.', 'success');
-    console.log('[Auth] Sign up successful for:', email);
+    console.log('[Auth] Sign up successful as:', role);
   } catch (err) {
     console.error('[Auth] Sign up error:', err.message);
     showMessage(err.message || 'Sign up failed. Please try again.', 'error');
@@ -186,14 +229,14 @@ async function handleLogin(e) {
   }
 
   showLoading(true, 'login-btn');
-  console.log('[Auth] Attempting login for:', email);
+  console.log('[Auth] Attempting login');
 
   try {
     const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
 
     if (error) throw error;
 
-    console.log('[Auth] Login successful for:', email);
+    console.log('[Auth] Login successful');
     await redirectByRole(data.user);
   } catch (err) {
     console.error('[Auth] Login error:', err.message);
@@ -238,7 +281,7 @@ async function handleForgotPassword(e) {
     });
     if (error) throw error;
     showMessage('Password reset email sent! Check your inbox.', 'success');
-    console.log('[Auth] Password reset sent to:', email);
+    console.log('[Auth] Password reset sent');
   } catch (err) {
     console.error('[Auth] Reset password error:', err.message);
     showMessage('Could not send reset email. Please try again.', 'error');

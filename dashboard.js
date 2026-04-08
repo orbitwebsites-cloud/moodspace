@@ -76,6 +76,9 @@ async function verifyCounselorAuth() {
 // === DATABASE ===
 // Loads all dashboard sections in sequence
 async function loadAllDashboardData() {
+  // Pre-fetch student IDs at this counselor's school for scoped queries
+  await loadSchoolStudentIds();
+
   await Promise.all([
     loadStatsCards(),
     loadMoodDistribution(),
@@ -83,6 +86,31 @@ async function loadAllDashboardData() {
     loadTopicBreakdown(),
     checkMoodAlerts()
   ]);
+}
+
+// === DATABASE ===
+// Fetches student IDs at the counselor's school (used to scope all queries)
+let schoolStudentIds = [];
+async function loadSchoolStudentIds() {
+  try {
+    const school = currentProfile.school;
+    if (!school) {
+      console.warn('[Dashboard] Counselor has no school set — dashboard data will be empty');
+      schoolStudentIds = [];
+      return;
+    }
+    const { data, error } = await supabaseClient
+      .from('profiles')
+      .select('id')
+      .eq('school', school)
+      .eq('role', 'student');
+    if (error) throw error;
+    schoolStudentIds = (data || []).map(p => p.id);
+    console.log('[Dashboard] Loaded', schoolStudentIds.length, 'student IDs for school:', school);
+  } catch (err) {
+    console.error('[Dashboard] Student ID fetch error:', err.message);
+    schoolStudentIds = [];
+  }
 }
 
 // === DATABASE ===
@@ -148,14 +176,18 @@ function setStatCard(id, value) {
 
 // === DATABASE ===
 // Loads mood distribution for this week and renders a doughnut chart
+// SCOPED: only entries from students at the counselor's school
 async function loadMoodDistribution() {
   try {
+    if (schoolStudentIds.length === 0) return;
+
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);
 
     const { data, error } = await supabaseClient
       .from('entries')
       .select('mood')
+      .in('user_id', schoolStudentIds)
       .gte('created_at', weekAgo.toISOString());
 
     if (error) throw error;
@@ -213,14 +245,18 @@ function renderDoughnutChart(canvasId, labels, data, colors) {
 
 // === DATABASE ===
 // Loads 4-week daily average mood scores and renders a line chart
+// SCOPED: only entries from students at the counselor's school
 async function loadWeeklyTrend() {
   try {
+    if (schoolStudentIds.length === 0) return;
+
     const fourWeeksAgo = new Date();
     fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 27);
 
     const { data, error } = await supabaseClient
       .from('entries')
       .select('mood_score, created_at')
+      .in('user_id', schoolStudentIds)
       .gte('created_at', fourWeeksAgo.toISOString())
       .order('created_at', { ascending: true });
 
@@ -312,14 +348,18 @@ function renderLineChart(canvasId, labels, data) {
 
 // === DATABASE ===
 // Loads topic distribution this week and renders a bar chart
+// SCOPED: only entries from students at the counselor's school
 async function loadTopicBreakdown() {
   try {
+    if (schoolStudentIds.length === 0) return;
+
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);
 
     const { data, error } = await supabaseClient
       .from('entries')
       .select('topic')
+      .in('user_id', schoolStudentIds)
       .eq('is_journal', true)
       .gte('created_at', weekAgo.toISOString())
       .not('topic', 'is', null);
@@ -388,10 +428,12 @@ function renderTopicChart(canvasId, labels, data) {
 
 // === DATABASE ===
 // Checks if avg mood has dropped below 2.5 for 3+ consecutive days
+// SCOPED: only entries from students at the counselor's school
 async function checkMoodAlerts() {
   try {
     const alertSection = document.getElementById('alert-section');
     if (!alertSection) return;
+    if (schoolStudentIds.length === 0) return;
 
     const threeDaysAgo = new Date();
     threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
@@ -399,6 +441,7 @@ async function checkMoodAlerts() {
     const { data, error } = await supabaseClient
       .from('entries')
       .select('mood_score, created_at')
+      .in('user_id', schoolStudentIds)
       .gte('created_at', threeDaysAgo.toISOString())
       .order('created_at', { ascending: true });
 

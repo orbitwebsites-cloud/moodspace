@@ -1,4 +1,9 @@
 // ============================================================
+// ⚠️  DEPRECATED — This file is a legacy version of the app,
+//     now superseded by main.js (ES module, full-featured).
+//     Kept for reference only. Do NOT add new code here.
+//     The active app entry point is main.js (loaded by index.html).
+// ============================================================
 // app.js — Core logic for the MoodSpace main app (index.html)
 // Handles check-ins, journal mode, AI responses, streaks, charts
 // ============================================================
@@ -271,7 +276,7 @@ function showTipsCard(topicKey) {
 
   tipsTitle.textContent = topicData.label;
   tipsList.innerHTML = topicData.tips
-    .map(tip => `<li>${tip}</li>`)
+    .map(tip => `<li>${sanitize(tip)}</li>`)
     .join('');
 
   tipsCard.classList.remove('hidden');
@@ -321,15 +326,18 @@ async function setupAIButton() {
 // === API ===
 // Builds the Gemini prompt and fetches the AI response
 async function fetchGeminiResponse(mood, note, isJournal, topic) {
+  const { data: { session: chatSess } } = await supabaseClient.auth.getSession();
   const res = await fetch('/api/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(chatSess?.access_token ? { 'Authorization': `Bearer ${chatSess.access_token}` } : {})
+    },
     body: JSON.stringify({
       messages: [
         { role: 'system', content: 'You are a warm, supportive teenage mental wellness companion. Give 2-3 sentence responses.' },
         { role: 'user', content: `I am feeling ${mood}. Here is my note: ${note}` }
-      ],
-      isPro: false
+      ]
     })
   });
 
