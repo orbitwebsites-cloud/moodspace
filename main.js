@@ -7,37 +7,23 @@
 
 // === IMPORTS ===
 // Supabase via ESM CDN — no bundler needed
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.100.1/+esm'
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
 
-// Keys come from either:
-//   • config.js (local dev, gitignored) — sets window.MOODSPACE_CONFIG
-//   • /api/config serverless function (Vercel — reads env vars)
-// Config loading is inlined here so Vite bundles it correctly for production.
-const _cfg = await (async () => {
-  if (window.MOODSPACE_CONFIG?.supabaseUrl) {
-    return window.MOODSPACE_CONFIG
-  }
-  try {
-    const res = await fetch('/api/config')
-    if (!res.ok) throw new Error(`/api/config returned ${res.status}`)
-    const cfg = await res.json()
-    if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) {
-      throw new Error('Incomplete config — check Vercel env vars.')
-    }
-    window.MOODSPACE_CONFIG = cfg
-    return cfg
-  } catch (err) {
-    document.body.textContent = ''
-    const errP = document.createElement('p')
-    errP.style.cssText = 'padding:2rem;font-family:sans-serif;color:#B33A3A'
-    errP.textContent = `⚠️ Could not load app config: ${err.message}`
-    document.body.appendChild(errP)
-    throw err
-  }
-})()
+// Keys come from config-loader.js which reads either:
+//   • config.js (local dev, gitignored)
+//   • /api/config serverless function (Vercel — reads env vars automatically)
+// window._configReady is a Promise set by config-loader.js
+const _cfg = await window._configReady.catch(err => {
+  document.body.innerHTML =
+    `<p style="padding:2rem;font-family:sans-serif;color:#B33A3A">
+       ⚠️ Could not load app config: ${err.message}
+     </p>`
+  throw err
+})
 const {
   supabaseUrl, supabaseAnonKey,
   stripePublishableKey: STRIPE_PUBLISHABLE_KEY,
+  stripePriceId:        STRIPE_PRICE_ID,
 } = _cfg
 
 // ── Pro feature gates ────────────────────────────────────────
@@ -55,22 +41,7 @@ const AI_PERSONALITIES = {
   journal:   { label: '📓 Journaling Partner', desc: 'Asks deep questions to help you reflect',            tone: 'like a journaling partner — ask one meaningful reflective question after validating their feelings, to deepen self-awareness' },
 }
 
-function isPro() {
-  if (!currentProfile) return false
-  if (currentProfile.is_pro) return true   // paid subscriber
-  // Review-reward trial
-  if (currentProfile.pro_trial_expires_at) {
-    return new Date(currentProfile.pro_trial_expires_at) > new Date()
-  }
-  return false
-}
-
-function trialDaysLeft() {
-  const exp = currentProfile?.pro_trial_expires_at
-  if (!exp || currentProfile?.is_pro) return 0
-  const ms = new Date(exp) - new Date()
-  return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)))
-}
+function isPro() { return !!currentProfile?.is_pro }
 
 // Checks + increments today's AI usage.
 // Uses Supabase (entries with ai_response today) as the source of truth —
@@ -96,29 +67,21 @@ async function checkDailyAiLimit() {
   return (count || 0) < FREE_AI_LIMIT
 }
 
-// Redirect user to Stripe Checkout for Pro subscription
+// Redirect user to Stripe Checkout session URL
 async function startStripeCheckout() {
-  try {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session?.access_token) throw new Error('Not signed in')
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session?.access_token) throw new Error('No auth session')
 
-    showToast('Redirecting to checkout…', 'info')
-
-    const res = await fetch('/api/stripe-checkout', {
-      method:  'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
-      },
-    })
-    const json = await res.json()
-    if (!res.ok) throw new Error(json.error || 'Could not create checkout session')
-
-    window.location.href = json.url
-  } catch (err) {
-    console.error('[Stripe] Checkout error:', err)
-    showToast('Could not start checkout — please try again', 'error')
-  }
+  const res = await fetch('/api/stripe-checkout', {
+    method: 'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
+    },
+  })
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.error || 'Could not start checkout')
+  return json.url
 }
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey)
@@ -169,7 +132,7 @@ function debounce(fn, delay = 600) {
 // STATE
 // ============================================================
 const state = {
-  currentTab:      'checkin',  // 'checkin' | 'insights' | 'resources' | 'settings' | 'chat'
+  currentTab:      'checkin',  // 'checkin' | 'insights' | 'resources' | 'settings'
   currentView:     'checkin',  // 'checkin' | 'journal'
   selectedMood:    null,
   selectedTopic:   null,
@@ -181,11 +144,6 @@ const state = {
   chartType:       localStorage.getItem('ms-chart') || 'bar',  // 'bar' | 'line' | 'dots'
   aiPersonality:   localStorage.getItem('ms-ai-personality') || 'friend',  // pro feature
   affirmation:     localStorage.getItem('ms-affirmation') || '',           // pro feature
-  chatMessages:    [],   // { role: 'user'|'ai', text: string }[]
-  chatPersonality: localStorage.getItem('ms-chat-persona') || 'friend',
-  chatTyping:      false,
-  hasReviewed:     false,  // loaded from Supabase after auth
-  reviewRating:    0,      // currently selected star rating in the review form
 }
 
 // Auth state
@@ -260,10 +218,7 @@ let mainContent, appHeader, mainTitle, mainSubtitle, tabButtons
 // INIT
 // ============================================================
 
-// Because main.js uses top-level await (to fetch config), DOMContentLoaded
-// may have already fired by the time this module continues. We check
-// readyState so the app initialises correctly in both cases.
-async function init() {
+document.addEventListener('DOMContentLoaded', async () => {
   mainContent  = document.getElementById('main-content')
   appHeader    = document.getElementById('app-header')
   mainTitle    = document.getElementById('main-title')
@@ -275,47 +230,14 @@ async function init() {
   // verifyAuth() may redirect unauthenticated users — stop here if so
   if (!currentUser) return
 
-  // Handle Stripe Checkout return
-  const stripeResult = new URLSearchParams(window.location.search).get('stripe')
-  if (stripeResult === 'success') {
-    // Clean up the URL then re-fetch profile (webhook may have already flipped is_pro)
-    history.replaceState({}, '', window.location.pathname)
-    const { data: fresh } = await supabase.from('profiles').select('*').eq('id', currentUser.id).single()
-    if (fresh) currentProfile = fresh
-    showToast('🎉 Welcome to MoodSpace Pro! Enjoy unlimited access.', 'success')
-  } else if (stripeResult === 'cancel') {
-    history.replaceState({}, '', window.location.pathname)
-    showToast('Checkout cancelled — you can upgrade anytime 💙', 'info')
-  }
-
   // Restore saved theme before first render
   applyTheme(state.theme)
 
   setupTabBar()
-
-  // Hide header on scroll down, show on scroll up
-  let lastScrollY = window.scrollY
-  window.addEventListener('scroll', () => {
-    const header = document.getElementById('app-header')
-    if (!header) return
-    const currentY = window.scrollY
-    if (currentY > lastScrollY && currentY > 60) {
-      header.classList.add('header-hidden')
-    } else {
-      header.classList.remove('header-hidden')
-    }
-    lastScrollY = currentY
-  }, { passive: true })
-
   await loadHistory()
   render()
-}
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init)
-} else {
-  init()
-}
+  await handleStripeReturn()
+})
 
 // ============================================================
 // AUTH
@@ -369,14 +291,6 @@ async function verifyAuth() {
     window.location.href = 'dashboard.html'
     return
   }
-
-  // Check if user has already submitted a review
-  const { data: review } = await supabase
-    .from('reviews')
-    .select('id')
-    .eq('user_id', currentUser.id)
-    .maybeSingle()
-  state.hasReviewed = !!review
 
   console.log('[Auth] Signed in as:', currentProfile?.display_name)
 }
@@ -463,12 +377,6 @@ function render() {
     } else if (state.currentTab === 'resources') {
       mainTitle.textContent   = 'Resources'
       mainSubtitle.textContent = 'Tools to help you anchor'
-    } else if (state.currentTab === 'settings') {
-      mainTitle.textContent   = 'Settings'
-      mainSubtitle.textContent = 'Manage your account & preferences'
-    } else if (state.currentTab === 'chat') {
-      mainTitle.textContent    = 'AI Support'
-      mainSubtitle.textContent = 'Always someone here for you'
     }
   }
 
@@ -481,9 +389,6 @@ function render() {
     mainContent.innerHTML = renderResources()
   } else if (state.currentTab === 'settings') {
     mainContent.innerHTML = renderSettings()
-  } else if (state.currentTab === 'chat') {
-    mainContent.innerHTML = renderAIChat()
-    scrollChatToBottom()
   }
 
   attachEventListeners()
@@ -995,20 +900,19 @@ function renderSettings() {
     ? `<span style="color:var(--color-primary);font-weight:700">Unlimited ✨</span>`
     : `<span style="color:var(--color-text-muted)">${FREE_AI_LIMIT}/day — <a href="#" id="link-upgrade" style="color:var(--color-primary);font-weight:600">Upgrade for unlimited</a></span>`
 
-  const days = trialDaysLeft()
-  const onTrial = !currentProfile?.is_pro && days > 0
-
   // Pro badge or upgrade card
   const proSection = pro ? `
     <div class="settings-section pro-active-card">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
         <span class="pro-badge">PRO</span>
-        <span style="font-weight:700">${onTrial ? `Review Trial — ${days} day${days === 1 ? '' : 's'} left` : 'MoodSpace Pro — Active'}</span>
+        <span style="font-weight:700">MoodSpace Pro — Active</span>
       </div>
       <div style="font-size:0.85rem;color:var(--color-text-muted)">
-        ${onTrial ? 'Enjoying Pro? Subscribe to keep it after your trial ends.' : `Unlimited AI · Full history · All themes · ${PRO_PRICE}`}
+        Unlimited AI · Full history · All themes · ${PRO_PRICE}
       </div>
-      ${!onTrial ? `<button id="btn-cancel-sub" class="btn-danger-pill" style="margin-top:14px;font-size:0.8rem">Cancel subscription</button>` : ''}
+      <button id="btn-cancel-sub" class="btn-danger-pill" style="margin-top:14px;font-size:0.8rem">
+        Cancel subscription
+      </button>
     </div>
   ` : `
     <div class="settings-section upgrade-card">
@@ -1023,11 +927,14 @@ function renderSettings() {
         <li><span class="material-symbols-outlined">palette</span> All 5 color themes</li>
         <li><span class="material-symbols-outlined">workspace_premium</span> Pro badge on your profile</li>
       </ul>
-      <button id="btn-stripe-checkout" class="btn btn-primary" style="margin-top:16px;width:100%">
-        Subscribe with Stripe — ${PRO_PRICE}
-      </button>
-      <div id="stripe-loading" style="text-align:center;padding:12px;color:var(--color-text-muted);font-size:0.9rem">
-        Loading secure checkout…
+      <div id="stripe-checkout-area" style="margin-top:16px">
+        <a href="./checkout.html" style="text-decoration:none;display:block">
+          <button id="btn-stripe-checkout" class="btn btn-primary" style="width:100%;padding:14px;font-size:1rem;font-weight:700;border-radius:var(--radius-pill);background:var(--color-accent-primary);color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 12V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v5"/><path d="M2 17h20"/><path d="M6 21h12"/></svg>
+            Upgrade to Pro — ${PRO_PRICE}
+          </button>
+        </a>
+        <p style="text-align:center;font-size:0.78rem;color:var(--color-text-muted);margin-top:8px">Secure payment via Stripe · Cancel anytime</p>
       </div>
     </div>
   `
@@ -1148,28 +1055,6 @@ function renderSettings() {
         </div>
       </div>
 
-      <!-- Review for 3-day Pro reward -->
-      ${!state.hasReviewed ? `
-      <div class="settings-section review-card">
-        <div class="review-card-header">
-          <span class="review-card-emoji">⭐</span>
-          <div>
-            <div class="review-card-title">Enjoying MoodSpace?</div>
-            <div class="review-card-sub">Leave a review and get <strong>3 days of Pro free!</strong></div>
-          </div>
-        </div>
-        <div class="star-row" id="star-row">
-          ${[1,2,3,4,5].map(n => `<button class="star-btn" data-star="${n}" aria-label="${n} star">☆</button>`).join('')}
-        </div>
-        <textarea id="review-text" class="settings-input review-textarea"
-          placeholder="What do you love about MoodSpace? What could be better?"
-          maxlength="500" rows="3"></textarea>
-        <button id="btn-submit-review" class="btn btn-primary" style="margin-top:10px">
-          Submit &amp; unlock 3 days Pro ✨
-        </button>
-      </div>
-      ` : ''}
-
       <!-- Sign out -->
       <div class="settings-section">
         <button id="btn-signout" class="btn btn-secondary">
@@ -1185,7 +1070,54 @@ function renderSettings() {
 // ============================================================
 // STRIPE SUBSCRIPTION
 // ============================================================
-// startStripeCheckout() is defined near the top of the file
+
+function mountStripeCheckoutButton() {
+  if (isPro()) return
+
+  const btn = document.getElementById('btn-stripe-checkout')
+  if (!btn) return
+
+  btn.addEventListener('click', async () => {
+    btn.disabled    = true
+    btn.textContent = 'Redirecting to checkout…'
+
+    try {
+      const url = await startStripeCheckout()
+      window.location.href = url
+    } catch (err) {
+      console.error('[Stripe] Checkout error:', err)
+      showToast('Could not start checkout — please try again. ' + err.message, 'error')
+      btn.disabled    = false
+      btn.innerHTML   = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 12V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v5"/><path d="M2 17h20"/><path d="M6 21h12"/></svg> Upgrade to Pro — ${PRO_PRICE}`
+    }
+  })
+}
+
+// Handle redirect back from Stripe Checkout with ?checkout=success
+async function handleStripeReturn() {
+  const params = new URLSearchParams(window.location.search)
+  if (params.get('checkout') !== 'success') return
+
+  // Remove the query param cleanly
+  window.history.replaceState({}, '', window.location.pathname)
+
+  showToast('Payment received — activating Pro…', 'info')
+
+  // Poll Supabase for up to 10 seconds for the webhook to update the profile
+  for (let i = 0; i < 10; i++) {
+    await new Promise(r => setTimeout(r, 1000))
+    const { data: profile } = await supabase
+      .from('profiles').select('*').eq('id', currentUser.id).single()
+    if (profile?.is_pro) {
+      currentProfile = profile
+      showToast('Welcome to MoodSpace Pro! 🎉', 'success')
+      render()
+      return
+    }
+  }
+
+  showToast('Payment received! Pro may take a moment to activate — refresh if needed.', 'info')
+}
 
 // Export all journal entries as a .txt file (Pro)
 function handleExportJournal() {
@@ -1390,7 +1322,7 @@ function attachEventListeners() {
     btn.addEventListener('click', () => {
       if (btn.dataset.locked) {
         showToast('This theme is Pro-only — upgrade to unlock all themes ✨', 'info')
-        document.getElementById('paypal-button-container')?.scrollIntoView({ behavior: 'smooth' })
+        document.getElementById('stripe-checkout-area')?.scrollIntoView({ behavior: 'smooth' })
         return
       }
       applyTheme(btn.dataset.theme)
@@ -1431,275 +1363,27 @@ function attachEventListeners() {
   // Upgrade link in AI usage row
   document.getElementById('link-upgrade')?.addEventListener('click', (e) => {
     e.preventDefault()
-    document.getElementById('btn-stripe-checkout')?.scrollIntoView({ behavior: 'smooth' })
+    document.getElementById('stripe-checkout-area')?.scrollIntoView({ behavior: 'smooth' })
   })
 
-  // Settings — cancel subscription
+  // Settings — cancel subscription (opens Stripe customer portal)
   document.getElementById('btn-cancel-sub')?.addEventListener('click', () => {
     if (confirm('Cancel your Pro subscription? You can re-subscribe any time.')) {
-      window.open('https://billing.stripe.com/p/login', '_blank')
-      showToast('Manage your subscription on Stripe — changes take effect at next billing date', 'info')
+      window.open('https://billing.stripe.com/p/login/live_28o17g1Wt8Jq8Vy144', '_blank')
+      showToast('Manage your subscription in the Stripe billing portal — changes take effect at next billing date', 'info')
     }
   })
 
-  // Stripe checkout button
-  document.getElementById('btn-stripe-checkout')?.addEventListener('click', startStripeCheckout)
-
-  // Review card — star rating
-  document.querySelectorAll('.star-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const picked = parseInt(btn.dataset.star)
-      state.reviewRating = picked
-      document.querySelectorAll('.star-btn').forEach(b => {
-        const n = parseInt(b.dataset.star)
-        b.textContent = n <= picked ? '★' : '☆'
-        b.classList.toggle('star-filled', n <= picked)
-      })
-    })
-  })
-
-  // Review card — submit
-  document.getElementById('btn-submit-review')?.addEventListener('click', async () => {
-    if (!state.reviewRating) {
-      showToast('Pick a star rating first ⭐', 'info')
-      return
-    }
-    const body = sanitizeInput(document.getElementById('review-text')?.value || '', 500)
-    const btn  = document.getElementById('btn-submit-review')
-    btn.disabled    = true
-    btn.textContent = 'Submitting…'
-
-    try {
-      // Save the review
-      const { error: reviewErr } = await supabase.from('reviews').insert([{
-        user_id: currentUser.id,
-        rating:  state.reviewRating,
-        body:    body || null
-      }])
-      if (reviewErr) throw reviewErr
-
-      // Grant 3-day trial via secure backend (validates review exists server-side)
-      const { data: { session: trialSession } } = await supabase.auth.getSession()
-      const trialRes = await fetch('/api/grant-trial', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(trialSession?.access_token ? { 'Authorization': `Bearer ${trialSession.access_token}` } : {})
-        }
-      })
-      if (!trialRes.ok) {
-        const errJson = await trialRes.json().catch(() => ({}))
-        console.warn('[Review] Trial grant failed:', errJson.error)
-      }
-
-      // Refresh local profile
-      const { data: fresh } = await supabase
-        .from('profiles').select('*').eq('id', currentUser.id).single()
-      if (fresh) currentProfile = fresh
-
-      state.hasReviewed  = true
-      state.reviewRating = 0
-      showToast("Thanks for the review! You've unlocked 3 days of Pro 🎉", 'success')
-      render()
-    } catch (err) {
-      console.error('[Review]', err.message)
-      if (err.code === '23505') {
-        // Already reviewed — just mark it locally
-        state.hasReviewed = true
-        showToast("You've already left a review 💙", 'info')
-        render()
-      } else {
-        showToast('Could not submit — please try again', 'error')
-        btn.disabled    = false
-        btn.textContent = 'Submit & unlock 3 days Pro ✨'
-      }
-    }
-  })
+  // Mount Stripe checkout button after DOM is ready
+  if (state.currentTab === 'settings' && !isPro()) {
+    mountStripeCheckoutButton()
+  }
 
   // Settings — sign out
   document.getElementById('btn-signout')?.addEventListener('click', async () => {
     await supabase.auth.signOut()
     window.location.href = './auth.html'
   })
-
-  // AI Chat tab — personality switcher
-  document.querySelectorAll('.chat-persona-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      state.chatPersonality = btn.dataset.persona
-      localStorage.setItem('ms-chat-persona', state.chatPersonality)
-      document.querySelectorAll('.chat-persona-btn').forEach(b => b.classList.toggle('active', b.dataset.persona === state.chatPersonality))
-    })
-  })
-
-  // AI Chat tab — send button
-  document.getElementById('chat-send')?.addEventListener('click', sendChatMessage)
-  document.getElementById('chat-input')?.addEventListener('keydown', e => {
-    if (e.key === 'Enter') sendChatMessage()
-  })
-}
-
-// ============================================================
-// AI CHAT TAB
-// ============================================================
-
-const CHAT_PERSONAS = [
-  { key: 'friend',    label: 'Supportive Friend' },
-  { key: 'mentor',    label: 'Wise Mentor' },
-  { key: 'coach',     label: 'Hype Coach' },
-  { key: 'therapist', label: 'Calm Guide' },
-]
-
-function renderAIChat() {
-  if (!isPro()) {
-    return `
-      <div class="ai-chat-wrap">
-        <div class="chat-paywall">
-          <div class="chat-paywall-icon">✨</div>
-          <h2 class="chat-paywall-title">AI Chat is a Pro feature</h2>
-          <p class="chat-paywall-desc">Upgrade to get unlimited conversations with your AI wellness companion — available in any mood, any time.</p>
-          <button class="btn-upgrade-chat" onclick="(function(){ state.currentTab='settings'; tabButtons.forEach(b=>b.classList.toggle('active',b.dataset.tab==='settings')); render(); scrollTo(0,0); })()">
-            Upgrade to Pro
-          </button>
-        </div>
-      </div>`
-  }
-
-  const persona = state.chatPersonality
-  const msgs = state.chatMessages
-
-  const personaPills = CHAT_PERSONAS.map(p => `
-    <button class="chat-persona-btn ${persona === p.key ? 'active' : ''}" data-persona="${p.key}">
-      ${p.label}
-    </button>`).join('')
-
-  const bubbles = msgs.map(m => m.role === 'user'
-    ? `<div class="chat-bubble-wrap user"><div class="chat-bubble user">${escapeHtml(m.text)}</div></div>`
-    : `<div class="chat-bubble-wrap ai"><div class="chat-avatar-sm">🌿</div><div class="chat-bubble ai">${escapeHtml(m.text)}</div></div>`
-  ).join('')
-
-  const typing = state.chatTyping
-    ? `<div class="chat-bubble-wrap ai"><div class="chat-avatar-sm">🌿</div><div class="chat-typing"><span></span><span></span><span></span></div></div>`
-    : ''
-
-  const empty = msgs.length === 0 && !state.chatTyping
-    ? `<div class="chat-empty">
-         <div class="chat-empty-icon">💬</div>
-         <p>Start the conversation — share anything on your mind.</p>
-       </div>`
-    : ''
-
-  return `
-    <div class="ai-chat-wrap">
-      <div class="ai-support-badge">✨ AI-Powered Support</div>
-      <div class="chat-persona-row">${personaPills}</div>
-
-      <div class="chat-messages" id="chat-messages">
-        ${empty}${bubbles}${typing}
-      </div>
-
-      <div class="chat-input-row">
-        <input id="chat-input" class="chat-input" type="text"
-               placeholder="Share what's on your mind…" autocomplete="off" maxlength="500" />
-        <button id="chat-send" class="chat-send-btn" aria-label="Send">
-          <span class="material-symbols-outlined">send</span>
-        </button>
-      </div>
-    </div>`
-}
-
-function escapeHtml(str) {
-  const d = document.createElement('div')
-  d.textContent = str
-  return d.innerHTML
-}
-
-function scrollChatToBottom() {
-  // Double-rAF ensures DOM is fully painted before measuring
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    const el = document.getElementById('chat-messages')
-    if (!el) return
-    const lastBubble = el.lastElementChild
-    if (lastBubble) {
-      lastBubble.scrollIntoView({ behavior: 'smooth', block: 'end' })
-    } else {
-      el.scrollTop = el.scrollHeight
-    }
-  }))
-}
-
-function refreshChatMessages() {
-  const el = document.getElementById('chat-messages')
-  if (!el) return
-
-  const msgs = state.chatMessages
-  const bubbles = msgs.map(m => m.role === 'user'
-    ? `<div class="chat-bubble-wrap user"><div class="chat-bubble user">${escapeHtml(m.text)}</div></div>`
-    : `<div class="chat-bubble-wrap ai"><div class="chat-avatar-sm">🌿</div><div class="chat-bubble ai">${escapeHtml(m.text)}</div></div>`
-  ).join('')
-
-  const typing = state.chatTyping
-    ? `<div class="chat-bubble-wrap ai"><div class="chat-avatar-sm">🌿</div><div class="chat-typing"><span></span><span></span><span></span></div></div>`
-    : ''
-
-  el.innerHTML = bubbles + typing
-  scrollChatToBottom()
-}
-
-async function sendChatMessage() {
-  const input = document.getElementById('chat-input')
-  const text = input?.value.trim()
-  if (!text || state.chatTyping) return
-
-  input.value = ''
-  state.chatMessages.push({ role: 'user', text })
-  state.chatTyping = true
-  refreshChatMessages()
-
-  try {
-    const personality = AI_PERSONALITIES[state.chatPersonality] || AI_PERSONALITIES.friend
-    const systemPrompt =
-      `You are a caring, friendly mental wellness companion made specifically for teenagers. ` +
-      `Respond ${personality.tone}. ` +
-      `Always acknowledge and validate their feelings first — never dismiss or minimise what they're going through. ` +
-      `Use warm, natural language (contractions, casual words) so it feels like a real conversation. ` +
-      `Keep responses to ${isPro() ? '4-6' : '3-4'} sentences. ` +
-      `Never use bullet points or lists. Never lecture or be preachy. ` +
-      `Always end with something encouraging, a gentle question, or a small next step. ` +
-      `If someone seems to be in crisis or mentions self-harm, gently remind them that a trusted adult or a helpline like 988 can help.`
-
-    // Build full conversation history for context
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      ...state.chatMessages.slice(0, -1).map(m => ({
-        role: m.role === 'user' ? 'user' : 'assistant',
-        content: m.text
-      })),
-      { role: 'user', content: text }
-    ]
-
-    const { data: { session: chatSession } } = await supabase.auth.getSession()
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(chatSession?.access_token ? { 'Authorization': `Bearer ${chatSession.access_token}` } : {})
-      },
-      body: JSON.stringify({ messages })
-    })
-    if (!res.ok) {
-      const errBody = await res.text()
-      throw new Error(`${res.status}: ${errBody}`)
-    }
-    const json = await res.json()
-    const reply = json.text || "I'm here with you. 💙 Try again in a moment."
-    state.chatMessages.push({ role: 'ai', text: reply })
-  } catch (err) {
-    console.warn('[Chat] AI failed:', err.message)
-    state.chatMessages.push({ role: 'ai', text: "I'm having trouble connecting right now. Try again in a moment 💙" })
-  }
-
-  state.chatTyping = false
-  refreshChatMessages()
 }
 
 // ============================================================
@@ -1788,14 +1472,10 @@ function buildAIMessages(mood, note, isJournal, topic) {
 async function callAI(mood, note, isJournal, topic) {
   const messages = buildAIMessages(mood, note, isJournal, topic)
 
-  const { data: { session: aiSession } } = await supabase.auth.getSession()
   const res = await fetch('/api/chat', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(aiSession?.access_token ? { 'Authorization': `Bearer ${aiSession.access_token}` } : {})
-    },
-    body: JSON.stringify({ messages })
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages, isPro: isPro() })
   })
 
   if (!res.ok) {

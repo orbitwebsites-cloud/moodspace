@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy Policy — MoodSpace</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Be+Vietnam+Pro:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./style.css" />
+  <style>
+    body { background: var(--color-bg-main); font-family: var(--font-body); padding: 0; margin: 0; }
+
+    .legal-header {
+      background: linear-gradient(135deg, #9b452e 0%, #c26040 100%);
+      color: #fff; padding: 2rem 2rem 1.5rem; text-align: center;
+    }
+    .legal-header .logo { font-size: 1.3rem; font-weight: 800; font-family: var(--font-heading); margin-bottom: 0.5rem; }
+    .legal-header h1 { font-size: 1.8rem; font-weight: 700; font-family: var(--font-heading); margin: 0 0 0.3rem; }
+    .legal-header p { opacity: 0.85; font-size: 0.88rem; margin: 0; }
+
+    .legal-body { max-width: 780px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+    .legal-body h2 {
+      font-size: 1.1rem; font-weight: 700; font-family: var(--font-heading);
+      color: var(--color-accent-primary); margin: 2rem 0 0.6rem;
+    }
+    .legal-body h2:first-child { margin-top: 0; }
+    .legal-body p { color: var(--color-text-main); font-size: 0.92rem; line-height: 1.75; margin: 0 0 0.8rem; }
+    .legal-body ul { padding-left: 1.4rem; margin: 0 0 0.8rem; }
+    .legal-body ul li { color: var(--color-text-main); font-size: 0.92rem; line-height: 1.75; margin-bottom: 0.3rem; }
+    .legal-body a { color: var(--color-accent-primary); }
+
+    .data-table { width: 100%; border-collapse: collapse; margin: 0.8rem 0 1.2rem; font-size: 0.88rem; }
+    .data-table th { background: var(--color-bg-surface); color: var(--color-text-main); font-weight: 600; padding: 10px 14px; text-align: left; border-bottom: 2px solid rgba(0,0,0,0.08); }
+    .data-table td { padding: 9px 14px; border-bottom: 1px solid rgba(0,0,0,0.06); color: var(--color-text-main); vertical-align: top; }
+    .data-table tr:last-child td { border-bottom: none; }
+
+    .legal-footer {
+      text-align: center; padding: 1.5rem; border-top: 1px solid rgba(0,0,0,0.07);
+      font-size: 0.82rem; color: var(--color-text-muted);
+    }
+    .legal-footer a { color: var(--color-accent-primary); text-decoration: none; margin: 0 0.5rem; }
+
+    .back-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      color: rgba(255,255,255,0.85); font-size: 0.85rem; font-family: var(--font-body);
+      background: none; border: none; cursor: pointer; padding: 0; margin-bottom: 1rem;
+      text-decoration: none;
+    }
+    .back-btn:hover { color: #fff; }
+  </style>
+</head>
+<body>
+
+<div class="legal-header">
+  <a href="/" class="back-btn">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+    Back to MoodSpace
+  </a>
+  <div class="logo">🌿 MoodSpace</div>
+  <h1>Privacy Policy</h1>
+  <p>Last updated: March 28, 2026</p>
+</div>
+
+<div class="legal-body">
+
+  <h2>1. Introduction</h2>
+  <p>MoodSpace ("we", "us", or "our") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, store, and protect your personal information when you use MoodSpace. We know this app handles sensitive mental health data, and we take that responsibility seriously.</p>
+
+  <h2>2. Information We Collect</h2>
+  <table class="data-table">
+    <thead>
+      <tr><th>Data Type</th><th>What We Collect</th><th>Why</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Account Info</strong></td><td>Email address, display name, role (student/counselor), school, grade</td><td>To create and manage your account</td></tr>
+      <tr><td><strong>Mood & Journal Data</strong></td><td>Mood check-ins, journal entries, AI responses, topics</td><td>To provide the core app experience and insights</td></tr>
+      <tr><td><strong>Usage Data</strong></td><td>Daily AI usage count, streak data, app settings (theme, personality)</td><td>To enforce free-tier limits and personalize your experience</td></tr>
+      <tr><td><strong>Payment Info</strong></td><td>Subscription status, Stripe customer ID, subscription ID</td><td>To manage Pro subscriptions — we never store raw card data</td></tr>
+      <tr><td><strong>Technical Data</strong></td><td>Browser type, device type (via logs)</td><td>To diagnose errors and improve the app</td></tr>
+    </tbody>
+  </table>
+
+  <h2>3. How We Use Your Information</h2>
+  <ul>
+    <li>To provide, maintain, and improve the MoodSpace service.</li>
+    <li>To generate AI-powered responses to your mood check-ins and journal entries.</li>
+    <li>To show you mood trends and insights over time.</li>
+    <li>To manage your subscription and process payments via Stripe.</li>
+    <li>To send important service-related emails (e.g., account security, billing).</li>
+    <li>To detect and prevent fraud, abuse, or violations of our Terms of Service.</li>
+  </ul>
+  <p>We <strong>do not</strong> sell your personal data, share it with advertisers, or use it for marketing purposes.</p>
+
+  <h2>4. Data Storage & Security</h2>
+  <p>Your data is stored securely in <strong>Supabase</strong> (PostgreSQL database hosted on AWS). We use:</p>
+  <ul>
+    <li>Row-Level Security (RLS) — you can only access your own data, enforced at the database level.</li>
+    <li>Encrypted connections (HTTPS/TLS) for all data in transit.</li>
+    <li>Encrypted storage at rest provided by Supabase/AWS.</li>
+    <li>Separate service role keys for backend-only operations (never exposed to clients).</li>
+  </ul>
+
+  <h2>5. Your Mental Health Data</h2>
+  <p>We understand your journal entries and mood data are deeply personal. We want to be explicit:</p>
+  <ul>
+    <li>Your journal entries are <strong>private to you</strong> — no one at MoodSpace reads them.</li>
+    <li>AI responses are generated automatically and not reviewed by humans.</li>
+    <li>We do not use your mental health data to train AI models.</li>
+    <li>School counselors (if applicable) can only access data for students who have explicitly shared it.</li>
+  </ul>
+
+  <h2>6. Third-Party Services</h2>
+  <p>We use the following trusted third-party services:</p>
+  <table class="data-table">
+    <thead>
+      <tr><th>Service</th><th>Purpose</th><th>Data Shared</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Supabase</strong></td><td>Database & authentication</td><td>All app data (stored securely)</td></tr>
+      <tr><td><strong>Stripe</strong></td><td>Payment processing</td><td>Email, subscription status</td></tr>
+      <tr><td><strong>ModelsLab / OpenRouter</strong></td><td>AI response generation</td><td>Your mood entry text (anonymized)</td></tr>
+      <tr><td><strong>Vercel</strong></td><td>Hosting & serverless functions</td><td>Request logs (IP, browser)</td></tr>
+    </tbody>
+  </table>
+  <p>Each of these services has their own privacy policy and security standards. We only share the minimum data necessary for each service to function.</p>
+
+  <h2>7. Cookies & Local Storage</h2>
+  <p>MoodSpace uses:</p>
+  <ul>
+    <li><strong>Supabase auth cookies</strong> — to keep you logged in across sessions (essential).</li>
+    <li><strong>localStorage</strong> — to remember your theme, AI personality, and app preferences (stored only on your device).</li>
+    <li><strong>No advertising or tracking cookies.</strong></li>
+  </ul>
+  <p>You can clear your browser's localStorage and cookies at any time to remove locally stored preferences. See our <a href="#cookies">Cookie Policy section</a> below.</p>
+
+  <h2 id="cookies">8. Cookie Policy</h2>
+  <p>We use only essential cookies and local storage — nothing for tracking or advertising:</p>
+  <table class="data-table">
+    <thead>
+      <tr><th>Cookie / Storage</th><th>Type</th><th>Purpose</th><th>Duration</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>sb-*</code> (Supabase)</td><td>Essential</td><td>Authentication session token</td><td>Until logout or expiry</td></tr>
+      <tr><td><code>ms-theme</code></td><td>Preference</td><td>Your selected color theme</td><td>Persistent (localStorage)</td></tr>
+      <tr><td><code>ms-ai-personality</code></td><td>Preference</td><td>Your selected AI personality</td><td>Persistent (localStorage)</td></tr>
+      <tr><td><code>ms-chart</code></td><td>Preference</td><td>Your preferred chart type</td><td>Persistent (localStorage)</td></tr>
+      <tr><td><code>ms-affirmation</code></td><td>Preference</td><td>Your daily affirmation text</td><td>Persistent (localStorage)</td></tr>
+    </tbody>
+  </table>
+
+  <h2>9. Data Retention & Deletion</h2>
+  <ul>
+    <li>Your data is retained as long as your account is active.</li>
+    <li>Free users: mood history is limited to 7 days in the app view (full data retained in DB).</li>
+    <li>Pro users: 90-day history view.</li>
+    <li>You can delete your account at any time from Settings → Sign out (account deletion coming soon).</li>
+    <li>On account deletion, all personal data including entries, journal, and profile will be permanently deleted within 30 days.</li>
+  </ul>
+
+  <h2>10. Children's Privacy</h2>
+  <p>MoodSpace is available to users aged 13 and older. We do not knowingly collect personal data from children under 13. If you believe a child under 13 has created an account, please contact us and we will delete the account and all associated data.</p>
+
+  <h2>11. Your Rights</h2>
+  <p>Depending on your location, you may have the right to:</p>
+  <ul>
+    <li><strong>Access</strong> the personal data we hold about you.</li>
+    <li><strong>Correct</strong> inaccurate data (update your profile in Settings).</li>
+    <li><strong>Delete</strong> your account and all associated data.</li>
+    <li><strong>Export</strong> your journal data (Pro feature — Settings → Export).</li>
+    <li><strong>Object</strong> to certain processing of your data.</li>
+  </ul>
+  <p>To exercise any of these rights, contact us at <a href="mailto:support@moodspace.app">support@moodspace.app</a>.</p>
+
+  <h2>12. Changes to This Policy</h2>
+  <p>We may update this Privacy Policy from time to time. We will notify you of significant changes by updating the date at the top of this page. Continued use of MoodSpace after changes constitutes your acceptance of the updated policy.</p>
+
+  <h2>13. Contact Us</h2>
+  <p>If you have questions or concerns about your privacy, contact us at <a href="mailto:support@moodspace.app">support@moodspace.app</a>.</p>
+
+</div>
+
+<div class="legal-footer">
+  <a href="/">Home</a>
+  <a href="/privacy.html">Privacy Policy</a>
+  <a href="/terms.html">Terms of Service</a>
+  © 2026 MoodSpace. All rights reserved.
+</div>
+
+</body>
+</html>

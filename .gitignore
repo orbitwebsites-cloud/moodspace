@@ -1,9 +1,6 @@
 # Secret keys — NEVER commit root config.js (leading slash = root only)
 /config.js
 
-# Claude persistent memory (local only)
-.claude-memory.md
-
 # Claude Code local settings (may contain API keys in permission rules)
 .claude/
 
@@ -31,5 +28,3 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-
-.vercel
