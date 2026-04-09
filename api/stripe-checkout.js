@@ -11,9 +11,9 @@
 //   SUPABASE_URL
 //   SUPABASE_ANON_KEY
 //   APP_URL                (e.g. https://yourapp.vercel.app — optional, falls back to Origin header)
+//
+// NOTE: Uses plain fetch against Supabase REST API — no npm packages needed.
 // ============================================================
-
-import { createClient } from '@supabase/supabase-js'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -27,21 +27,44 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Not authenticated' })
   }
 
-  // Verify token and get user via Supabase
-  const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_ANON_KEY,
-    { global: { headers: { Authorization: `Bearer ${userJwt}` } } }
-  )
+  const supabaseUrl  = process.env.SUPABASE_URL
+  const supabaseAnon = process.env.SUPABASE_ANON_KEY
 
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-  if (userError || !user) {
-    return res.status(401).json({ error: 'Invalid session — please log in again' })
+  if (!supabaseUrl || !supabaseAnon) {
+    return res.status(500).json({ error: 'Supabase env vars not configured' })
+  }
+
+  // Verify token and get user via Supabase REST API (no npm package needed)
+  let user
+  try {
+    const userRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: {
+        'apikey': supabaseAnon,
+        'Authorization': `Bearer ${userJwt}`,
+      }
+    })
+
+    if (!userRes.ok) {
+      return res.status(401).json({ error: 'Invalid session — please log in again' })
+    }
+
+    user = await userRes.json()
+    if (!user || !user.id) {
+      return res.status(401).json({ error: 'Invalid session — please log in again' })
+    }
+  } catch (err) {
+    console.error('[Stripe] Supabase auth check failed:', err.message)
+    return res.status(401).json({ error: 'Could not verify session' })
   }
 
   const priceId = process.env.STRIPE_PRICE_ID
   if (!priceId) {
     return res.status(500).json({ error: 'STRIPE_PRICE_ID not configured' })
+  }
+
+  const stripeKey = process.env.STRIPE_SECRET_KEY
+  if (!stripeKey) {
+    return res.status(500).json({ error: 'STRIPE_SECRET_KEY not configured' })
   }
 
   // Determine app base URL for redirect URLs
@@ -64,7 +87,7 @@ export default async function handler(req, res) {
     const stripeRes = await fetch('https://api.stripe.com/v1/checkout/sessions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+        'Authorization': `Bearer ${stripeKey}`,
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: params.toString(),

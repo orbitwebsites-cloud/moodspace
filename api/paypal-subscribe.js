@@ -52,9 +52,26 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
+  // Origin validation
+  const origin = req.headers.origin || ''
+  if (origin) {
+    const allowed = [
+      process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`,
+      process.env.VERCEL_PROJECT_PRODUCTION_URL && `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`,
+      'http://localhost:5173', 'http://localhost:4173', 'http://localhost:3000',
+    ].filter(Boolean)
+    if (!allowed.some(a => origin.startsWith(a))) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+  }
+
   const { subscriptionId } = req.body || {}
-  if (!subscriptionId) {
+  if (!subscriptionId || typeof subscriptionId !== 'string') {
     return res.status(400).json({ error: 'subscriptionId required' })
+  }
+  // Basic format validation — PayPal subscription IDs are alphanumeric with dashes
+  if (!/^[A-Za-z0-9\-]{5,64}$/.test(subscriptionId)) {
+    return res.status(400).json({ error: 'Invalid subscriptionId format' })
   }
 
   // The user must be authenticated — get their JWT from the Authorization header
@@ -94,7 +111,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Could not activate Pro: ' + error.message })
     }
 
-    console.log('[PayPal] Pro activated for subscription:', subscriptionId)
+    console.log('[PayPal] Pro activated for subscription:', subscriptionId.substring(0, 12) + '...')
     return res.status(200).json({ success: true, status: subscription.status })
 
   } catch (err) {

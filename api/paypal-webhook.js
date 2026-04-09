@@ -44,7 +44,15 @@ async function getPayPalToken() {
 // Verify the webhook came from PayPal (not spoofed)
 async function verifyWebhook(req, token, rawBody) {
   const webhookId = process.env.PAYPAL_WEBHOOK_ID
-  if (!webhookId) return true // skip verification if not configured (dev only)
+  if (!webhookId) {
+    // NEVER skip verification in production — reject the request
+    if (process.env.PAYPAL_MODE === 'live') {
+      console.error('[Webhook] PAYPAL_WEBHOOK_ID is not set — rejecting in live mode')
+      return false
+    }
+    console.warn('[Webhook] ⚠️ Skipping verification (sandbox dev only — set PAYPAL_WEBHOOK_ID for production)')
+    return true
+  }
 
   const res = await fetch(`${PAYPAL_BASE}/v1/notifications/verify-webhook-signature`, {
     method: 'POST',
