@@ -218,7 +218,9 @@ let mainContent, appHeader, mainTitle, mainSubtitle, tabButtons
 // INIT
 // ============================================================
 
-document.addEventListener('DOMContentLoaded', async () => {
+// top-level await above means DOMContentLoaded has already fired by the time
+// this module resumes — run init directly instead of adding a listener
+;(async () => {
   mainContent  = document.getElementById('main-content')
   appHeader    = document.getElementById('app-header')
   mainTitle    = document.getElementById('main-title')
@@ -237,7 +239,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadHistory()
   render()
   await handleStripeReturn()
-})
+})()
 
 // ============================================================
 // AUTH
