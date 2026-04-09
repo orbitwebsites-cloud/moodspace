@@ -81,7 +81,7 @@ export default async function handler(req, res) {
     params.append('client_reference_id', user.id)
     params.append('customer_email', user.email || '')
     params.append('success_url', `${origin}/?checkout=success`)
-    params.append('cancel_url', `${origin}/checkout.html`)
+    params.append('cancel_url', `${origin}/checkout.html?cancelled=1`)
     params.append('allow_promotion_codes', 'true')
 
     const stripeRes = await fetch('https://api.stripe.com/v1/checkout/sessions', {
