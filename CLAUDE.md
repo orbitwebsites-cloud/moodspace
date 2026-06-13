@@ -6,7 +6,7 @@
 **Name:** MoodSpace
 **Type:** Teen mental wellness web app (Hackathon project)
 **Stack:** Vanilla JS + HTML/CSS, Supabase (auth + DB), Vercel (serverless API + hosting), Vite (local dev)
-**Repo root:** `D:\Hackathon Project Moody`
+**Repo root:** `D:\moodspace`
 **Live URL:** Deployed on Vercel (check vercel.json for config)
 
 ## Key Files
