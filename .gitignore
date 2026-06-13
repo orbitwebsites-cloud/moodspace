@@ -1,6 +1,10 @@
 # Secret keys — NEVER commit root config.js (leading slash = root only)
 /config.js
 
+# Internal dev notes — keep out of the public repo
+.claude-memory.md
+security_report.md
+
 # Claude Code local settings (may contain API keys in permission rules)
 .claude/
 

@@ -16,10 +16,11 @@
 //   STRIPE_WEBHOOK_SECRET    (whsec_... — from Stripe webhook dashboard)
 //   SUPABASE_URL
 //   SUPABASE_SERVICE_ROLE_KEY  (service role needed — no user JWT in webhook context)
+//
+// NOTE: Uses plain fetch against Supabase REST API — no npm packages needed.
 // ============================================================
 
-import { createClient } from '@supabase/supabase-js'
-import crypto from 'crypto'
+import { createHmac, timingSafeEqual } from 'node:crypto'
 
 // Verify the webhook signature to confirm it came from Stripe
 function verifyStripeSignature(rawBody, sigHeader, secret) {
@@ -39,16 +40,35 @@ function verifyStripeSignature(rawBody, sigHeader, secret) {
     throw new Error('Webhook timestamp outside tolerance window')
   }
 
-  const expectedSig = crypto
-    .createHmac('sha256', secret)
+  const expectedSig = createHmac('sha256', secret)
     .update(`${timestamp}.${rawBody}`)
     .digest('hex')
 
   const sigBuf = Buffer.from(signature, 'hex')
   const expBuf = Buffer.from(expectedSig, 'hex')
 
-  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+  if (sigBuf.length !== expBuf.length || !timingSafeEqual(sigBuf, expBuf)) {
     throw new Error('Signature mismatch')
+  }
+}
+
+// Helper — PATCH a row in Supabase via REST API using service role key
+async function supabasePatch(supabaseUrl, serviceKey, table, matchField, matchValue, updates) {
+  const url = `${supabaseUrl}/rest/v1/${table}?${matchField}=eq.${encodeURIComponent(matchValue)}`
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'apikey': serviceKey,
+      'Authorization': `Bearer ${serviceKey}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=minimal',
+    },
+    body: JSON.stringify(updates),
+  })
+
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Supabase PATCH failed (${res.status}): ${text}`)
   }
 }
 
@@ -71,11 +91,14 @@ export default async function handler(req, res) {
     }
   }
 
-  const event   = JSON.parse(rawBody)
-  const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-  )
+  const event      = JSON.parse(rawBody)
+  const supabaseUrl = process.env.SUPABASE_URL
+  const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !serviceKey) {
+    console.error('[Webhook] Missing Supabase env vars')
+    return res.status(500).json({ error: 'Server misconfigured' })
+  }
 
   console.log('[Stripe Webhook] Event:', event.type)
 
@@ -91,16 +114,15 @@ export default async function handler(req, res) {
         return res.status(200).json({ received: true })
       }
 
-      const { error } = await supabase.from('profiles').update({
+      await supabasePatch(supabaseUrl, serviceKey, 'profiles', 'id', userId, {
         is_pro:             true,
         stripe_sub_id:      subscriptionId,
         stripe_customer_id: customerId,
         pro_since:          new Date().toISOString(),
         pro_cancelled_at:   null,
-      }).eq('id', userId)
+      })
 
-      if (error) console.error('[Webhook] Supabase activate error:', error.message)
-      else console.log('[Webhook] Pro activated for user:', userId)
+      console.log('[Webhook] Pro activated for user:', userId)
 
     } else if (
       event.type === 'customer.subscription.deleted' ||
@@ -109,13 +131,12 @@ export default async function handler(req, res) {
     ) {
       const sub = event.data.object
 
-      const { error } = await supabase.from('profiles').update({
+      await supabasePatch(supabaseUrl, serviceKey, 'profiles', 'stripe_sub_id', sub.id, {
         is_pro:           false,
         pro_cancelled_at: new Date().toISOString(),
-      }).eq('stripe_sub_id', sub.id)
+      })
 
-      if (error) console.error('[Webhook] Supabase deactivate error:', error.message)
-      else console.log('[Webhook] Pro deactivated for sub:', sub.id)
+      console.log('[Webhook] Pro deactivated for sub:', sub.id)
 
     } else if (event.type === 'invoice.payment_failed') {
       const invoice = event.data.object

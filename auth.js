@@ -125,11 +125,13 @@ async function handleSignup(e) {
 
   try {
     // Create the auth user in Supabase
+    // We always set role to 'student' initially to prevent privilege escalation via RLS
+    const defaultRole = 'student';
     const { data, error } = await supabaseClient.auth.signUp({
       email,
       password,
       options: {
-        data: { display_name: displayName, role }
+        data: { display_name: displayName, role: defaultRole }
       }
     });
 
@@ -137,7 +139,28 @@ async function handleSignup(e) {
 
     // Save extended profile info to the profiles table
     if (data.user) {
-      await createProfile(data.user, { displayName, email, role, school, grade });
+      await createProfile(data.user, { displayName, email, role: defaultRole, school, grade });
+      
+      // If counselor, verify code and let backend elevate role securely
+      if (role === 'counselor') {
+        const staffCode = document.getElementById('staff-code')?.value?.trim();
+        if (staffCode) {
+          const verifyRes = await fetch('/api/verify-counselor-code', {
+             method: 'POST',
+             headers: { 
+               'Content-Type': 'application/json',
+               'Authorization': `Bearer ${data.session.access_token}` 
+             },
+             body: JSON.stringify({ code: staffCode, school })
+          });
+          const result = await verifyRes.json();
+          if (!result.valid) {
+             throw new Error('Sign up succeeded, but invalid staff code provided. You are logged in as a student.');
+          }
+        } else {
+             throw new Error('Sign up succeeded, but no staff code provided. You are logged in as a student.');
+        }
+      }
     }
 
     showMessage('Account created! Check your email to confirm, then log in.', 'success');

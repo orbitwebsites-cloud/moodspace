@@ -321,9 +321,15 @@ async function setupAIButton() {
 // === API ===
 // Builds the Gemini prompt and fetches the AI response
 async function fetchGeminiResponse(mood, note, isJournal, topic) {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  const token = session?.access_token;
+
   const res = await fetch('/api/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
     body: JSON.stringify({
       messages: [
         { role: 'system', content: 'You are a warm, supportive teenage mental wellness companion. Give 2-3 sentence responses.' },

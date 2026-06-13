@@ -82,25 +82,38 @@ CREATE POLICY "users_read_own_review" ON reviews
 -- create a database function that validates writes:
 -- ============================================================
 
--- Option: Use a trigger to prevent client-side writes to Pro fields
-CREATE OR REPLACE FUNCTION prevent_pro_self_grant()
+-- Option: Use a trigger to prevent client-side writes to Pro and Role fields
+CREATE OR REPLACE FUNCTION prevent_profile_self_escalation()
 RETURNS TRIGGER AS $$
 BEGIN
-  -- If is_pro or pro_trial_expires_at changed, check if it's a service_role call
+  -- If sensitive fields changed, check if it's a service_role call
   IF (OLD.is_pro IS DISTINCT FROM NEW.is_pro) OR
-     (OLD.pro_trial_expires_at IS DISTINCT FROM NEW.pro_trial_expires_at) THEN
+     (OLD.pro_trial_expires_at IS DISTINCT FROM NEW.pro_trial_expires_at) OR
+     (OLD.role IS DISTINCT FROM NEW.role) OR
+     (OLD.school IS DISTINCT FROM NEW.school AND OLD.role = 'counselor') THEN
+    
     -- Only allow if the JWT role is 'service_role' (server-side)
     IF current_setting('request.jwt.claims', true)::json->>'role' != 'service_role' THEN
-      -- Revert the Pro fields to their old values
+      -- Revert the fields to their old values
       NEW.is_pro := OLD.is_pro;
       NEW.pro_trial_expires_at := OLD.pro_trial_expires_at;
+      
+      -- Also protect role unless role is being initialized as student
+      IF OLD.role IS NOT NULL THEN
+        NEW.role := OLD.role;
+      END IF;
+      
+      -- Only block school updates if they are a counselor
+      IF OLD.role = 'counselor' THEN
+        NEW.school := OLD.school;
+      END IF;
     END IF;
   END IF;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE TRIGGER guard_pro_fields
+CREATE TRIGGER guard_profile_fields
   BEFORE UPDATE ON profiles
   FOR EACH ROW
-  EXECUTE FUNCTION prevent_pro_self_grant();
+  EXECUTE FUNCTION prevent_profile_self_escalation();

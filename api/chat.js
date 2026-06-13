@@ -12,9 +12,29 @@
 //   MODELSLAB_API_KEY    — modelslab.com
 // ============================================================
 
+import { createClient } from '@supabase/supabase-js'
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
+  }
+
+  // Authenticate the user securely
+  const authHeader = req.headers.authorization || ''
+  const jwt = authHeader.replace('Bearer ', '').trim()
+  if (!jwt) {
+    return res.status(401).json({ error: 'Not authenticated' })
+  }
+
+  const supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_ANON_KEY,
+    { global: { headers: { Authorization: `Bearer ${jwt}` } } }
+  )
+
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return res.status(401).json({ error: 'Invalid or expired session' })
   }
 
   const { messages, isPro } = req.body

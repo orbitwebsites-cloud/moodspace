@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#fff8f1"/>
+      <stop offset="100%" style="stop-color:#fdeee3"/>
+    </linearGradient>
+    <linearGradient id="leaf" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#c26040"/>
+      <stop offset="100%" style="stop-color:#9b452e"/>
+    </linearGradient>
+    <linearGradient id="arc" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#9b452e"/>
+      <stop offset="100%" style="stop-color:#7d3621"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#9b452e" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="200" cy="200" r="190" fill="url(#bg)" filter="url(#shadow)"/>
+
+  <!-- Outer ring accent -->
+  <circle cx="200" cy="200" r="188" fill="none" stroke="#9b452e" stroke-width="2" stroke-opacity="0.12"/>
+
+  <!-- Mood arc (smile / wave — represents emotional warmth) -->
+  <path d="M 118 210 Q 200 280 282 210" fill="none" stroke="url(#arc)" stroke-width="11" stroke-linecap="round"/>
+
+  <!-- Left eye dot -->
+  <circle cx="163" cy="168" r="10" fill="#9b452e"/>
+
+  <!-- Right eye dot -->
+  <circle cx="237" cy="168" r="10" fill="#9b452e"/>
+
+  <!-- Leaf sprouting from top (wellness / growth) -->
+  <path d="M 200 80 C 200 80 230 108 218 135 C 210 155 200 148 200 148 C 200 148 190 155 182 135 C 170 108 200 80 200 80 Z"
+        fill="url(#leaf)" opacity="0.92"/>
+  <!-- Leaf midrib -->
+  <line x1="200" y1="148" x2="200" y2="88" stroke="#fff8f1" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+
+  <!-- Wordmark -->
+  <text x="200" y="335"
+        font-family="'Plus Jakarta Sans', 'Segoe UI', Arial, sans-serif"
+        font-size="36"
+        font-weight="800"
+        fill="#9b452e"
+        text-anchor="middle"
+        letter-spacing="-1">MoodSpace</text>
+
+  <!-- Tagline -->
+  <text x="200" y="362"
+        font-family="'Plus Jakarta Sans', 'Segoe UI', Arial, sans-serif"
+        font-size="14"
+        font-weight="500"
+        fill="#9b452e"
+        text-anchor="middle"
+        opacity="0.55"
+        letter-spacing="2">YOUR FEELINGS, UNDERSTOOD.</text>
+</svg>
